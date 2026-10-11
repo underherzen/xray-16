@@ -8,6 +8,10 @@
 #   define XR_PLATFORM_LINUX
 #   define XR_PLATFORM_POSIX
 #   define _XRAY_PLATFORM_MARKER "Android"
+#elif defined(__EMSCRIPTEN__)
+#   define XR_PLATFORM_WEB
+#   define XR_PLATFORM_POSIX
+#   define _XRAY_PLATFORM_MARKER "Web"
 #elif defined(__linux__)
 #   define XR_PLATFORM_LINUX
 #   define XR_PLATFORM_POSIX
@@ -66,6 +70,13 @@
 #elif defined (__e2k__)
 #   define XR_ARCHITECTURE_E2K
 #   define _XRAY_ARCHITECTURE_MARKER "E2K"
+#elif defined(__wasm32__) || defined(__wasm64__)
+#   define XR_ARCHITECTURE_WASM
+#   if defined(__wasm64__)
+#       define _XRAY_ARCHITECTURE_MARKER "WebAssembly 64-bit"
+#   else
+#       define _XRAY_ARCHITECTURE_MARKER "WebAssembly 32-bit"
+#   endif
 #else
 #   error Unsupported architecture
 #endif
@@ -83,6 +94,8 @@
 #include "Common/PlatformWindows.inl"
 #elif defined(XR_PLATFORM_LINUX) || defined(XR_PLATFORM_HAIKU)
 #include "Common/PlatformLinux.inl"
+#elif defined(XR_PLATFORM_WEB)
+#include "Common/PlatformWeb.inl"
 #elif defined(XR_PLATFORM_BSD)
 #include "Common/PlatformBSD.inl"
 #elif defined(XR_PLATFORM_APPLE)

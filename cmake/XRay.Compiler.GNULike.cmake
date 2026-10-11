@@ -39,14 +39,16 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     endif()
 elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     # XXX: Remove -fdelayed-template-parsing
+    if (NOT EMSCRIPTEN) # MSVC compatibility flag, rejected for the wasm target
+        add_compile_options(-fdelayed-template-parsing)
+    endif()
     add_compile_options(
-        -fdelayed-template-parsing
         -Wno-unused-command-line-argument
         -Wno-inconsistent-missing-override
     )
 endif()
 
-if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT XRAY_USE_DEFAULT_CXX_LIB)
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT XRAY_USE_DEFAULT_CXX_LIB AND NOT EMSCRIPTEN) # Emscripten manages its own libc++
     if (NOT XRAY_CXX_LIB)
         include(CheckCXXCompilerFlag)
         CHECK_CXX_COMPILER_FLAG("-stdlib=libc++" LIBCPP_AVAILABLE)
@@ -125,6 +127,12 @@ elseif (PROJECT_PLATFORM_PPC)
         -mabi=altivec
     )
     add_compile_definitions(NO_WARN_X86_INTRINSICS)
+elseif (EMSCRIPTEN)
+    # WebAssembly: host ISA flags are meaningless; use wasm SIMD instead.
+    add_compile_options(-msimd128)
+    # Pull in the SDL2 port headers (the sysroot ships fake SDL headers
+    # that fail compilation without this flag).
+    add_compile_options(-sUSE_SDL=2)
 else()
     add_compile_options(
         -mfpmath=sse
@@ -140,7 +148,7 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_options(-Og)
 endif()
 
-if (NOT WIN32)
+if (NOT WIN32 AND NOT EMSCRIPTEN) # Emscripten provides these as ports (-sUSE_*) at link time
     find_package(SDL2 2.0.18 REQUIRED)
     find_package(OpenAL REQUIRED)
     find_package(JPEG)
@@ -149,6 +157,23 @@ if (NOT WIN32)
     find_package(Theora REQUIRED)
     find_package(LZO REQUIRED)
     find_package(mimalloc NAMES mimalloc2 mimalloc2.0 mimalloc)
+endif()
+
+if (EMSCRIPTEN)
+    # SDL2 and OpenAL are provided by Emscripten ports, enabled with the
+    # -sUSE_SDL=2 / -sUSE_OPENAL=1 link flags on the final wasm link.
+    # Ogg/Vorbis/JPEG similarly exist as ports; LZO has no port yet and will
+    # be vendored in-tree. Expose interface targets for target_link_libraries
+    # consumers so per-target builds (xrCore and friends) configure cleanly.
+    add_library(SDL2::SDL2 INTERFACE IMPORTED)
+    add_library(SDL2::SDL INTERFACE IMPORTED)
+    add_library(OpenAL::OpenAL INTERFACE IMPORTED)
+    add_library(Ogg::Ogg INTERFACE IMPORTED)
+    add_library(Vorbis::Vorbis INTERFACE IMPORTED)
+    add_library(Vorbis::VorbisFile INTERFACE IMPORTED)
+    add_library(Theora::Theora INTERFACE IMPORTED)
+    add_library(JPEG::JPEG INTERFACE IMPORTED)
+    # no LZO::LZO stub: the vendored Externals/lzo provides the real target
 endif()
 
 # Memory allocator option

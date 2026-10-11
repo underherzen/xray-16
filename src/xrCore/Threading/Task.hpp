@@ -21,6 +21,8 @@
 constexpr size_t RECOMMENDED_TASK_SIZE = 64; // bytes
 #elif defined(XR_ARCHITECTURE_X64) || defined(XR_ARCHITECTURE_ARM64) || defined(XR_ARCHITECTURE_E2K) || defined(XR_ARCHITECTURE_PPC64)
 constexpr size_t RECOMMENDED_TASK_SIZE = 128; // bytes
+#elif defined(XR_ARCHITECTURE_WASM) // no cache-line information exposed by wasm
+constexpr size_t RECOMMENDED_TASK_SIZE = 64; // bytes
 #else
 #error Determine your platform requirements
 #endif

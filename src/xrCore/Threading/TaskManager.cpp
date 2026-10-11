@@ -35,6 +35,7 @@
 #include "sse2rvv/sse2rvv.h"
 #elif defined(XR_ARCHITECTURE_PPC64)
 #include <xmmintrin.h>
+#elif defined(XR_ARCHITECTURE_WASM) // no x86 intrinsics are used in this translation unit
 #else
 #error Add your platform here
 #endif
