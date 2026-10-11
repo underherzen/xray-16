@@ -1,13 +1,23 @@
 {
-  "[cpp]": {
-    "editor.formatOnSave": false
-  },
-  "[c]": {
-    "editor.formatOnSave": false
-  },
-  "[xml]": {
-    "editor.formatOnSave": false
-  },
-  "files.trimTrailingWhitespace": false,
-  "files.insertFinalNewline": true
+    "[cpp]": {
+        "editor.formatOnSave": false
+    },
+    "[c]": {
+        "editor.formatOnSave": false
+    },
+    "[xml]": {
+        "editor.formatOnSave": false
+    },
+    "files.trimTrailingWhitespace": false,
+    "files.insertFinalNewline": true,
+    "files.watcherExclude": {
+        "**/build/**": true,
+        "**/bin/**": true,
+        "**/.git/objects/**": true
+    },
+    "search.exclude": {
+        "**/build": true,
+        "**/bin": true
+    },
+    "C_Cpp.intelliSenseEngine": "disabled"
 }
