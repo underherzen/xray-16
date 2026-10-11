@@ -598,10 +598,12 @@ void CLevel::script_gc()
         break;
 
     case 2:
+#if XRAY_USE_LUAJIT // LUA_GCTIMEOUT is a LuaJIT extension of the lua_gc API
         if (lua_gc(GEnv.ScriptEngine->lua(), LUA_GCTIMEOUT, psLUA_GCTIMEOUT) >= 0)
             break;
         // LUA_GCTIMEOUT is unsupported, fallback to LUA_GCSTEP
         [[fallthrough]];
+#endif
 
     default:
         ps_lua_gc_method = 1;

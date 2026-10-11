@@ -694,7 +694,7 @@ int CScriptEngine::lua_pcall_failed(lua_State* L)
         const auto result = xrDebug::Fail(ignoreAlways, DEBUG_INFO, "LUA error", err);
 
         if (result == AssertionResult::tryAgain || result == AssertionResult::ignore)
-            return LUA_OK;
+            return 0; // LUA_OK is Lua 5.2+; in Lua 5.1 success is 0
     }
 
     return LUA_ERRRUN;

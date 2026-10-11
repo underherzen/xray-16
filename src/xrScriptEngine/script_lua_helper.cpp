@@ -167,7 +167,7 @@ void print_stack(lua_State* L)
 int CDbgLuaHelper::hookLuaBind(lua_State* l)
 {
     if (!m_pThis)
-        return LUA_OK; // XXX: Is it correct to return LUA_OK?
+        return 0; // LUA_OK (Lua 5.2+); in Lua 5.1 success is 0
     L = l;
     [[maybe_unused]] int top1 = lua_gettop(L);
     Msg("hookLuaBind start");
@@ -185,7 +185,7 @@ int CDbgLuaHelper::hookLuaBind(lua_State* l)
         Msg("Tope string %s", lua_tostring(L, -1));
     [[maybe_unused]] int top2 = lua_gettop(L);
     VERIFY(top2 == top1);
-    return LUA_OK; // XXX: Probably, we should show message asking what value we should return.
+    return 0; // LUA_OK (Lua 5.2+); in Lua 5.1 success is 0
 }
 
 void CDbgLuaHelper::hookLua(lua_State* l, lua_Debug* ar)
