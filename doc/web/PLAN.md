@@ -202,7 +202,22 @@ network-free проверка, стабильность на длинных се
     Затона (145+ скриптов, 6464 спавна, уровень, рендер) — под gdb стабильно;
     без gdb ловится флейк-крач mesa/d3d12 в `hw_Render_dump` (detail-трава),
     тот же наблюдался однажды на JIT в M0.5 — окружение, не Lua
-  - **субмодули** luabind (`ba9ad1f`) и xrLuaFix (`9609600`) — локальные ветки
+  - **ещё два корневых бага найдены и починены** (диагностика: коры+gdb,
+    valgrind, ASAN+UBSan):
+    - **luabind GPF**: `object_rep` со `std::aligned_storage<32>` кладётся в
+      userdata, а у PUC Lua 5.1 заголовок Udata = 40 байт на x86-64 (у LuaJIT —
+      16) → payload всегда 8-в-16 → SSE-записи конструктора = General Protection
+      Fault. Это и были все «бродячие» сегфолты. Фикс: убрать over-alignment
+      класса + ручное выравнивание буфера держателя (субмодуль luabind, a9efb40)
+    - **профайлер-мок**: ванильные скрипты начинаются с
+      `if jit == nil then profiler.setup_hook() end` — под PUC ветка выполняется,
+      модуль ещё не загружен → runtime error в `_g.script` → каскад умирает →
+      `CALifeSimulator` не находит `start_game_callback` (FATAL). Фикс: no-op
+      `profiler.setup_hook` при `!XRAY_USE_LUAJIT` в init движка (bb1deaca3)
+  - вердикт по «бродячим» крашам: движковые — устранены двумя фиксами выше;
+    остался только драйверный mesa/d3d12 (`memmove` в NULL из gallium при
+    рендере, ловился и на JIT) — окружение WSLg, для wasm не существует
+  - **субмодули** luabind (`a9efb40`) и xrLuaFix (`9609600`) — локальные ветки
     `wasm-port`, НЕ запушены (репозитории не форкнуты) — форкнуть при публикации
   - **находка для M2**: emcc имеет compat-слой x86 SSE поверх `wasm_simd128.h`:
     `-msimd128 -D__SSE__` → `__m128`/`_mm_*` работают (проверено хеллоуворлдом);
