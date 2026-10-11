@@ -176,6 +176,37 @@ network-free проверка, стабильность на длинных се
     (PTRACE_TRACEME без отката; коммит 93c68d5af); для WSLg/X11 нужен
     `vid_refresh_rate 60` в `_appdata_/user.ltx`
   - артефакты прогона: `~/dev/cop/_m05/` (engine.log, mem2.log, shots/)
-- [ ] Замена LuaJIT → Lua 5.1 + регресс-тест нативной сборки
-- [ ] Первый `emcmake cmake -S . -B build-wasm -G Ninja` — собрать список проблем CMake
-- [ ] Сборка таргета `xrCore` под emcc — первый список ошибок компиляции
+- [x] **M1: Lua 5.1 + Emscripten-тулчейн + `ninja xrCore` под emcc** ✅ 2026-10-12
+  - **LuaJIT → PUC Lua 5.1.5**: вендорен в `Externals/lua51` (таргет `Lua51`).
+    Системный путь мёртв: Ubuntu 26.04 больше не пакует lua5.1, а upstream-ветка
+    `XRAY_USE_LUAJIT=OFF` звала `find_package(Lua)` без версии (подтянула бы 5.4)
+    и без include-путей. Фиксы по пути: `LUA_OK` — это 5.2+ (в 5.1 успех = 0);
+    `LUA_GCTIMEOUT` (расширение LuaJIT) — гвард по `XRAY_USE_LUAJIT`;
+    **краш найден gdb**: `luaL_register(L, "lua_extensions", nullptr)` — LuaJIT
+    терпит NULL-список, PUC разыменовывает → заменено на `lua_newtable+setglobal`
+    (субмодуль xrLuaFix); luabind линкует таргет `Lua51` (субмодуль luabind)
+  - **платформа**: `Platform.hpp` — `__EMSCRIPTEN__` → `XR_PLATFORM_WEB` (POSIX-подобная),
+    `__wasm32__` → `XR_ARCHITECTURE_WASM`; `PlatformWeb.inl` переиспользует Linux-слой
+  - **CMake**: гварды `-fdelayed-template-parsing`/stdlib-детекта/`-msse3` для
+    Emscripten; вместо них `-msimd128` + `-sUSE_SDL=2` (фейковые SDL-заголовки
+    sysroot требуют порт); INTERFACE-заглушки `SDL2::*`, `OpenAL::OpenAL`,
+    `Ogg/Vorbis/Theora/JPEG` (настоящее придёт из портов `-sUSE_*` при линковке);
+    **LZO 2.10 вендорен** в `Externals/lzo` (порта emscripten нет, а xrCore сжимает
+    им пакеты/уровни)
+  - **xrCore портабельность**: `_finddata_t` → `_finddata64i32_t` для wasm32;
+    SSE flush-zero стабы (как ARM); `RECOMMENDED_TASK_SIZE=64`; убран лишний
+    intrinsics-include в TaskManager
+  - **результат**: `emcmake cmake` — exit 0; `ninja -C build-wasm xrCore` — зелёный
+    (`build-wasm/src/xrCore/xrCore.a`, бонусом `libxrMiscMath.a`, `libLZO.a`)
+  - **регресс**: нативная JIT-сборка зелёная; игра на Lua 5.1 доходит до in-game
+    Затона (145+ скриптов, 6464 спавна, уровень, рендер) — под gdb стабильно;
+    без gdb ловится флейк-крач mesa/d3d12 в `hw_Render_dump` (detail-трава),
+    тот же наблюдался однажды на JIT в M0.5 — окружение, не Lua
+  - **субмодули** luabind (`ba9ad1f`) и xrLuaFix (`9609600`) — локальные ветки
+    `wasm-port`, НЕ запушены (репозитории не форкнуты) — форкнуть при публикации
+  - **находка для M2**: emcc имеет compat-слой x86 SSE поверх `wasm_simd128.h`:
+    `-msimd128 -D__SSE__` → `__m128`/`_mm_*` работают (проверено хеллоуворлдом);
+    это план для xrCDB (`ISpatial_q_ray.cpp` требует `__m128`)
+- [ ] M2: `-D__SSE__` для SSE-кода + сборка остальных библиотек по цепочке зависимостей
+  (`xrCDB → xrAPI → xrSound → xrUICore → xrPhysics/ODE/OPCODE → xrParticles →
+  xrNetServer → xrServerEntities → xrScriptEngine → xrAICore → xrGame → xrEngine/xr_3da`)
