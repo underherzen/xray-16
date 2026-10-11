@@ -941,6 +941,19 @@ void CScriptEngine::init(export_func exporter, bool loadGlobalNamespace)
 
     setup_gamedata_module_loading(lua());
 
+#if !XRAY_USE_LUAJIT
+    // Vanilla scripts begin with:
+    //     if jit == nil then profiler.setup_hook() end
+    // Under LuaJIT the branch is never taken; under plain Lua 5.1 the
+    // 'profiler' module may not be loaded yet, which aborts _g.script
+    // with a runtime error and breaks the whole script cascade
+    // (e.g. CALifeSimulator cannot find the start_game_callback functor).
+    // Provide a no-op profiler, like the mock gamedata profiler.script does.
+    luaL_dostring(lua(),
+        "if profiler == nil then profiler = {} end\n"
+        "if profiler.setup_hook == nil then profiler.setup_hook = function() end end\n");
+#endif
+
     // XXX nitrocaster: with vanilla scripts, '-nojit' option requires script profiler to be disabled. The reason
     // is that lua hooks somehow make 'super' global unavailable (is's used all over the vanilla scripts).
     // You can disable script profiler by commenting out the following lines in the beginning of _g.script:
