@@ -477,6 +477,27 @@ bool xrDebug::DebuggerIsPresent()
 {
 #ifdef XR_PLATFORM_WINDOWS
     return IsDebuggerPresent();
+#elif defined(XR_PLATFORM_LINUX)
+    // PTRACE_TRACEME cannot be undone from the tracee side and leaves
+    // the process traced by its parent forever: the first delivered signal
+    // ptrace-stops it unless the parent is a real debugger.
+    // Reading TracerPid from /proc is side-effect free.
+    FILE* status = fopen("/proc/self/status", "r");
+    if (!status)
+        return false;
+    bool present = false;
+    char line[64];
+    while (fgets(line, sizeof(line), status))
+    {
+        int tracerPid = 0;
+        if (sscanf(line, "TracerPid:%d", &tracerPid) == 1)
+        {
+            present = tracerPid != 0;
+            break;
+        }
+    }
+    fclose(status);
+    return present;
 #elif defined(PTRACE_AVAILABLE)
     if (ptrace(PTRACE_TRACEME, 0, 0, 0) == -1)
         return true;
