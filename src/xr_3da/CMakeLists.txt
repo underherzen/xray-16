@@ -57,6 +57,8 @@ if (EMSCRIPTEN)
         # Emscripten default of 64Kb overflows into static data and shows up as
         # wild "memory access out of bounds" traps deep inside innocuous code.
         -sSTACK_SIZE=16777216
+        # ccall: the dev probes in index.html call exported engine hooks
+        -sEXPORTED_RUNTIME_METHODS=ccall
         # Keep function names in the wasm + a funcidx->name map file next to the
         # binary: without them a browser/node stack trace is just
         # wasm-function[N] addresses, which makes startup debugging hopeless.

@@ -606,6 +606,17 @@ var XRFS = {
         });
     },
 
+    // OpenAL (WebAudio) state for the probes: context state + playing sources.
+    audioStats: function () {
+        if (typeof AL === 'undefined' || !AL.currentCtx) return 'none';
+        var ctx = AL.currentCtx, playing = 0, total = 0;
+        for (var id in ctx.sources) {
+            total++;
+            if (ctx.sources[id].state === 0x1012 /* AL_PLAYING */) playing++;
+        }
+        return ctx.audioCtx.state + ' ' + playing + '/' + total;
+    },
+
     // Memory snapshot for dev probes (?mem= in index.html): the wasm heap
     // plus what XRFS holds on the JS side, both count against the tab.
     memStats: function () {
@@ -615,6 +626,7 @@ var XRFS = {
             heap: HEAPU8.buffer.byteLength,
             mallocInUse: typeof _xr_web_malloc_in_use === 'function' ? _xr_web_malloc_in_use() : -1,
             mallocArena: typeof _xr_web_malloc_arena === 'function' ? _xr_web_malloc_arena() : -1,
+            audio: XRFS.audioStats(),
             pack: XRFS.packBytes,
             small: XRFS.smallBytes,
             blocks: blockBytes,

@@ -78,8 +78,22 @@
       var m = Module.XRFS.memStats(), MB = function (b) { return Math.round(b / 1048576); }; // heap can pass 2Gb: no int32 shifts
       console.log('MEM: heap=' + MB(m.heap) + 'MB malloc_in_use=' + MB(m.mallocInUse) +
         'MB malloc_arena=' + MB(m.mallocArena) + 'MB xrfs_pack=' + MB(m.pack) +
-        'MB xrfs_small=' + MB(m.small) + 'MB xrfs_blocks=' + MB(m.blocks) + 'MB');
+        'MB xrfs_small=' + MB(m.small) + 'MB xrfs_blocks=' + MB(m.blocks) + 'MB audio=' + m.audio);
     }, memEvery * 1000);
+  }
+
+  // Dev probe: ?cmd=SEC:command|SEC:command -- engine console commands at
+  // the given times ("|" separates, so Lua in run_string may use ";").
+  var cmdSeq = params.get('cmd');
+  if (cmdSeq) {
+    cmdSeq.split('|').forEach(function (step) {
+      var m = step.match(/^([\d.]+):(.*)$/);
+      if (!m) return;
+      setTimeout(function () {
+        console.log('CMD_PROBE ' + m[2]);
+        Module.ccall('xr_web_console_execute', null, ['string'], [m[2]]);
+      }, +m[1] * 1000);
+    });
   }
 
   // Dev probe: ?mouse=move@30:640,360;click@35:640,360 ...

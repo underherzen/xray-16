@@ -458,6 +458,17 @@ void CApplication::WebApplicationFrame()
     }
     RunApplicationFrame(s_application);
 }
+
+// Dev hook for the browser probes (tools/web, ?cmd=): run a console command
+// between frames, e.g. "run_string <lua>" or "time_factor 50".
+extern "C" EMSCRIPTEN_KEEPALIVE void xr_web_console_execute(const char* cmd)
+{
+    if (Console && cmd)
+    {
+        Msg("* [web] console: %s", cmd);
+        Console->Execute(cmd);
+    }
+}
 #endif
 
 int CApplication::Run()
