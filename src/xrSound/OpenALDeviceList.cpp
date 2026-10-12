@@ -134,6 +134,20 @@ void ALDeviceList::Enumerate()
     else
     {
         Msg("~ SOUND: OpenAL: EnumerationExtension NOT Present");
+
+        // Still try the default device: some implementations (Emscripten's
+        // WebAudio-backed OpenAL) answer the device queries without
+        // advertising the extension.
+        pcstr defaultDevice = alcGetString(nullptr, ALC_DEFAULT_DEVICE_SPECIFIER);
+        if (defaultDevice && defaultDevice[0])
+        {
+            xr_strcpy(m_defaultDeviceName, defaultDevice);
+            Log("SOUND: OpenAL: trying the default sound device", m_defaultDeviceName);
+
+            string256 list{}; // the device list format is double-null terminated
+            xr_strcpy(list, sizeof(list) - 1, defaultDevice);
+            IterateAndAddDevicesString(list);
+        }
     }
 
     // make token
