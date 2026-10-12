@@ -14,6 +14,7 @@
 <div id="status">loading…</div>
 <script>
   var statusElement = document.getElementById('status');
+  var params = new URLSearchParams(location.search);
   var Module = {
     preRun: [],
     postRun: [],
@@ -25,27 +26,51 @@
     onAbort: function (t) { statusElement.textContent = 'aborted: ' + t; },
   };
 
-  // Dev probe: ?shot=SECONDS — after SECONDS of wall-clock time, dump a
-  // screenshot of the canvas into the console as a data URL (one rAF after
-  // the engine frame of the same tick, so the drawing buffer is still valid).
-  // Headless Chrome writes console to stderr, the runner script extracts it.
-  var shotDelay = +new URLSearchParams(location.search).get('shot') || 0;
-  if (shotDelay > 0) {
-    setTimeout(function () {
-      requestAnimationFrame(function () {
-        try {
-          console.log('CANVAS_SHOT:' + document.getElementById('canvas').toDataURL('image/png'));
-        } catch (e) {
-          console.log('CANVAS_SHOT_ERR:' + e);
-        }
-      });
-    }, shotDelay * 1000);
+  // Engine command line: ?args=a%20b%20c (space-separated tokens) and
+  // ?newgame=1 sugar for the same autostart string used natively in M0.5.
+  var extraArgs = params.get('args') || '';
+  if (extraArgs)
+    Module.arguments = Module.arguments.concat(extraArgs.split(' '));
+  if (params.get('newgame'))
+    Module.arguments = Module.arguments.concat(['-start', 'server(all/single/alife/new)']);
+
+  // Dev probe: ?shot=SECONDS[,SECONDS...] -- after N seconds of wall-clock
+  // time, dump a screenshot of the canvas into the console as a data URL
+  // (one rAF after the engine frame of the same tick, so the drawing buffer
+  // is still valid). Headless Chrome writes console to stderr, the runner
+  // script extracts the base64 payload.
+  var shotParam = params.get('shot');
+  if (shotParam) {
+    shotParam.split(',').forEach(function (tok) {
+      var shotDelay = +tok;
+      if (!(shotDelay > 0)) return;
+      setTimeout(function () {
+        requestAnimationFrame(function () {
+          try {
+            console.log('CANVAS_SHOT[at_' + shotDelay + 's]:data:image/png;base64,' +
+                document.getElementById('canvas').toDataURL('image/png').split(',', 2)[1]);
+          } catch (e) {
+            console.log('CANVAS_SHOT_ERR:' + e);
+          }
+        });
+      }, shotDelay * 1000);
+    });
+  }
+
+  // Dev probe: ?mem=SECONDS -- log the wasm heap size every N seconds so
+  // long runs can be checked against the 2.5 GB budget.
+  var memEvery = +params.get('mem') || 0;
+  if (memEvery > 0) {
+    setInterval(function () {
+      var mb = Module.HEAPU8 ? (Module.HEAPU8.buffer.byteLength >> 20) : 0;
+      console.log('MEM: heap=' + mb + 'MB');
+    }, memEvery * 1000);
   }
 
   // Dev probe: ?mouse=move@30:640,360;click@35:640,360 ...
   // Synthetic events on the canvas (coordinates in canvas pixels, mapped
   // through the CSS rect) -- lets headless runs exercise SDL mouse input.
-  var mouseSeq = new URLSearchParams(location.search).get('mouse');
+  var mouseSeq = params.get('mouse');
   if (mouseSeq) {
     mouseSeq.split(';').forEach(function (step) {
       var m = step.match(/(move|down|up|click)@([\d.]+):(\d+),(\d+)/);
@@ -66,6 +91,32 @@
           if (action === 'click' || action === 'up')
             canvas.dispatchEvent(new MouseEvent('mouseup', evInit));
         }
+      }, at);
+    });
+  }
+
+  // Dev probe: ?keys=down@300:w;up@540:w -- synthetic keyboard events on
+  // the canvas; they bubble up to document where the SDL glue listens.
+  var keySeq = params.get('keys');
+  if (keySeq) {
+    var KEYCODES = { w: 87, a: 65, s: 83, d: 68, q: 81, e: 69, r: 82, f: 70,
+        shift: 16, ctrl: 17, alt: 18, space: 32, escape: 27, enter: 13, tab: 9 };
+    keySeq.split(';').forEach(function (step) {
+      var m = step.match(/(down|up)@([\d.]+):([\w]+)/);
+      if (!m) return;
+      var action = m[1], at = +m[2] * 1000, keyName = m[3];
+      setTimeout(function () {
+        var lower = keyName.toLowerCase();
+        var init = {
+          key: keyName.length === 1 ? lower : lower,
+          code: keyName.length === 1 ? 'Key' + keyName.toUpperCase() :
+              ({ shift: 'ShiftLeft', ctrl: 'ControlLeft', alt: 'AltLeft',
+                 space: 'Space', escape: 'Escape', enter: 'Enter', tab: 'Tab' })[lower] || keyName,
+          keyCode: KEYCODES[lower] || 0, which: KEYCODES[lower] || 0,
+          bubbles: true, cancelable: true,
+        };
+        console.log('KEY_PROBE ' + action + ' ' + keyName);
+        document.getElementById('canvas').dispatchEvent(new KeyboardEvent('key' + action, init));
       }, at);
     });
   }
