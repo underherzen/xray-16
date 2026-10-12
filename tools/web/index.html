@@ -11,12 +11,17 @@
                 background: rgba(0,0,0,.5); color: #9c9; border: 1px solid #9c9;
                 font: 12px monospace; cursor: pointer; }
   :fullscreen #fullscreen { display: none; }
+  #audiogate { position: absolute; inset: 0; z-index: 2; display: flex;
+               align-items: center; justify-content: center; cursor: pointer;
+               background: rgba(0,0,0,.55); color: #cfc; font: 20px sans-serif; }
+  #audiogate[hidden] { display: none; }
 </style>
 </head>
 <body>
 <canvas id="canvas"></canvas>
 <div id="status">loading…</div>
 <button id="fullscreen" title="Fullscreen + mouse capture">fullscreen</button>
+<div id="audiogate" hidden>Нажмите, чтобы продолжить (включить звук)</div>
 <script>
   var statusElement = document.getElementById('status');
   var params = new URLSearchParams(location.search);
@@ -217,6 +222,21 @@
       }, at);
     });
   }
+</script>
+<script>
+  // Browsers keep audio suspended until a user gesture. The engine's intro
+  // videos are timed by their sound, so until then the screen just stays
+  // black. Ask for the gesture while the AudioContext is suspended; the click
+  // itself resumes it (Emscripten's OpenAL listens for mousedown/keydown).
+  (function () {
+    var gate = document.getElementById('audiogate');
+    gate.addEventListener('mousedown', function () { gate.hidden = true; });
+    setInterval(function () {
+      var x = Module.XRFS;
+      if (!x || !x.audioStats) return;
+      gate.hidden = x.audioStats().indexOf('suspended') !== 0;
+    }, 500);
+  })();
 </script>
 <script src="xr_3da.js"></script>
 </body>
