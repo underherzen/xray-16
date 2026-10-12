@@ -229,7 +229,13 @@ void CTexture::Load()
             glBindTexture(GL_TEXTURE_2D, pTexture);
             CHK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0));
             CHK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0));
+#ifdef XR_PLATFORM_WEB
+            // GL_BGRA is not a legal format in WebGL2; this call only
+            // allocates storage (data == nullptr), so RGBA is equivalent.
+            CHK_GL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, _w, _h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr));
+#else
             CHK_GL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, _w, _h, 0, GL_BGRA, GL_UNSIGNED_BYTE, nullptr));
+#endif
 
             pSurface = pTexture;
             desc = GL_TEXTURE_2D;
