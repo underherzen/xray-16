@@ -21,8 +21,10 @@ var XRFS_CONFIG_DEFAULTS = {
     mountpoint: '/cop',
     baseUrl: 'cop/',
     indexUrl: 'files.json',
+    packUrl: 'pack.bin', // startup bundle of small files (make_index.py)
     baseDir: null,   // node only: local dir serving the game layout
     indexFile: null, // node only: path to files.json
+    packFile: null,  // node only: path to pack.bin
     smallFileLimit: 8 * 1024 * 1024,
     blockSize: 1024 * 1024,
     blockCacheBlocks: 96,
@@ -46,6 +48,7 @@ var XRFS = {
     overlay: null, // Map: path -> { type:'dir' } | { type:'file', data:Uint8Array }
     blocks: null,  // Map: "path:blockNo" -> Uint8Array (LRU)
     blockOrder: null,
+    seed: null,    // Map: lowercased path -> Uint8Array, from the startup pack
 
     isNode: function () {
         return typeof ENVIRONMENT_IS_NODE !== 'undefined' && ENVIRONMENT_IS_NODE;
@@ -119,6 +122,51 @@ var XRFS = {
         XRFS.overlay = new Map();
         XRFS.blocks = new Map();
         XRFS.blockOrder = [];
+        XRFS.loadPack();
+    },
+
+    // Startup pack (make_index.py): every small file in one request, so the
+    // thousands of tiny startup opens (.thm, .ltx, .s) don't pay a sync-XHR
+    // round trip each. Entries are subarray views -- no copies until read.
+    loadPack: function () {
+        var cfg = XRFS.cfg;
+        XRFS.seed = new Map();
+        var data;
+        try {
+            if (XRFS.isNode()) {
+                var fs = require('node:fs');
+                var path = cfg.packFile || cfg.baseDir + '/pack.bin';
+                if (!fs.existsSync(path)) return;
+                data = new Uint8Array(fs.readFileSync(path));
+            } else {
+                data = XRFS.xhrRange(cfg.packUrl);
+            }
+        } catch (e) {
+            console.log('XRFS: no startup pack (' + e.message + '), falling back to per-file requests');
+            return;
+        }
+        var dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+        var off = 0;
+        try {
+            if (dv.getUint32(off, true) !== 0x46505258) throw new Error('bad magic'); // 'XRPF'
+            var version = dv.getUint32(off + 4, true);
+            if (version !== 1) throw new Error('version ' + version);
+            off += 8;
+            var count = dv.getUint32(off, true); off += 4;
+            for (var i = 0; i < count; i++) {
+                var keyLen = dv.getUint32(off, true); off += 4;
+                var size = dv.getUint32(off, true); off += 4;
+                var key = '';
+                for (var k = 0; k < keyLen; k++) key += String.fromCharCode(data[off + k]);
+                off += keyLen;
+                XRFS.seed.set(key, data.subarray(off, off + size));
+                off += size;
+            }
+            console.log('XRFS: startup pack seeded ' + count + ' files');
+        } catch (e) {
+            XRFS.seed = new Map();
+            console.log('XRFS: startup pack unusable (' + e.message + ')');
+        }
     },
 
     ensureDir: function (tree, parts) {
@@ -180,8 +228,18 @@ var XRFS = {
         var path = node.xrPath, size = node.size;
         if (size <= XRFS.cfg.smallFileLimit) {
             if (!node.xrData) {
-                node.xrData = XRFS.readRange(path, 0, size);
-                node.size = node.xrData.length; // trust the server over the index
+                var seeded = XRFS.seed && XRFS.seed.get(path.toLowerCase());
+                if (seeded) {
+                    node.xrData = seeded;
+                    XRFS.seed.delete(path.toLowerCase()); // the view keeps the pack alive
+                } else {
+                    node.xrData = XRFS.readRange(path, 0, size);
+                }
+                node.size = node.xrData.length; // trust the server/pack over the index
+                if (node.xrData.length !== size)
+                    console.log('XRFS WARNING: ' + path + ' index size ' + size +
+                        ' != actual ' + node.xrData.length +
+                        ' -- regenerate files.json and pack.bin together, deploy both');
             }
             var n = Math.min(length, node.xrData.length - position);
             if (n <= 0) return 0;

@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 """Generate files.json -- the file index the wasm engine's CLocatorAPI uses
-instead of scanning directories.
+instead of scanning directories -- plus pack.bin, a bundle of every small
+file (see PACK_LIMIT) that XRFS fetches in a single request at startup.
 
-Usage: make_index.py <game_root> <out_json>
+Usage: make_index.py <game_root> <out_json> [out_pack]
 
 The index is a flat list of [relative_path, size, mtime] entries. Only the
 entries the game itself needs are included (see INCLUDE); dev leftovers in
 the layout dir (native builds, run scripts, logs) are skipped. Symlinks are
 followed so the layout's links into the Windows game install are indexed.
+
+The pack removes per-file request latency for the thousands of tiny files
+the engine opens during startup (3417 .thm alone cost ~2 minutes of sync
+XHR round trips). Layout: b"XRPF", u32 version, u32 count, then per entry
+u32 pathLen, path (lowercase, forward slashes), u32 size, raw bytes.
 """
 
 import json
 import os
+import struct
 import sys
 import time
 
@@ -28,9 +35,17 @@ INCLUDE = (
     "resources",
 )
 
+# Files up to this size go into pack.bin; bigger ones are read through the
+# normal block path (they are rare at startup and would bloat the bundle).
+PACK_LIMIT = 512 * 1024
+
+PACK_MAGIC = b"XRPF"
+PACK_VERSION = 1
+
 
 def main() -> None:
     root, out = sys.argv[1], sys.argv[2]
+    out_pack = sys.argv[3] if len(sys.argv) > 3 else None
     files = []
     dirs = []
     for name in INCLUDE:
@@ -54,6 +69,23 @@ def main() -> None:
     total = sum(s for _, s, _ in files)
     print(f"{len(files)} files, {len(dirs)} dirs, {total / 1024 / 1024:.0f} MiB -> {out}")
 
+    if not out_pack:
+        return
+    packed = [e for e in files if e[1] <= PACK_LIMIT]
+    with open(out_pack, "wb") as f:
+        f.write(PACK_MAGIC)
+        f.write(struct.pack("<II", PACK_VERSION, len(packed)))
+        for path, size, _ in packed:
+            key = path.lower().encode("utf-8")
+            f.write(struct.pack("<II", len(key), size))
+            f.write(key)
+            with open(os.path.join(root, path), "rb") as src:
+                f.write(src.read(size))
+    pack_size = sum(s for _, s, _ in packed)
+    print(f"pack: {len(packed)} files <= {PACK_LIMIT // 1024} KiB, "
+          f"{pack_size / 1024 / 1024:.0f} MiB -> {out_pack}")
+
 
 if __name__ == "__main__":
     main()
+

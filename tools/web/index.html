@@ -24,6 +24,51 @@
     setStatus: function (t) { statusElement.textContent = t; },
     onAbort: function (t) { statusElement.textContent = 'aborted: ' + t; },
   };
+
+  // Dev probe: ?shot=SECONDS — after SECONDS of wall-clock time, dump a
+  // screenshot of the canvas into the console as a data URL (one rAF after
+  // the engine frame of the same tick, so the drawing buffer is still valid).
+  // Headless Chrome writes console to stderr, the runner script extracts it.
+  var shotDelay = +new URLSearchParams(location.search).get('shot') || 0;
+  if (shotDelay > 0) {
+    setTimeout(function () {
+      requestAnimationFrame(function () {
+        try {
+          console.log('CANVAS_SHOT:' + document.getElementById('canvas').toDataURL('image/png'));
+        } catch (e) {
+          console.log('CANVAS_SHOT_ERR:' + e);
+        }
+      });
+    }, shotDelay * 1000);
+  }
+
+  // Dev probe: ?mouse=move@30:640,360;click@35:640,360 ...
+  // Synthetic events on the canvas (coordinates in canvas pixels, mapped
+  // through the CSS rect) -- lets headless runs exercise SDL mouse input.
+  var mouseSeq = new URLSearchParams(location.search).get('mouse');
+  if (mouseSeq) {
+    mouseSeq.split(';').forEach(function (step) {
+      var m = step.match(/(move|down|up|click)@([\d.]+):(\d+),(\d+)/);
+      if (!m) return;
+      var action = m[1], at = +m[2] * 1000, cx = +m[3], cy = +m[4];
+      setTimeout(function () {
+        var canvas = document.getElementById('canvas');
+        var r = canvas.getBoundingClientRect();
+        var evInit = {
+          clientX: r.left + cx / canvas.width * r.width,
+          clientY: r.top + cy / canvas.height * r.height,
+          button: 0, buttons: 1, bubbles: true, cancelable: true,
+        };
+        console.log('MOUSE_PROBE ' + action + ' ' + cx + ',' + cy);
+        canvas.dispatchEvent(new MouseEvent('mousemove', evInit));
+        if (action !== 'move') {
+          canvas.dispatchEvent(new MouseEvent('mousedown', evInit));
+          if (action === 'click' || action === 'up')
+            canvas.dispatchEvent(new MouseEvent('mouseup', evInit));
+        }
+      }, at);
+    });
+  }
 </script>
 <script src="xr_3da.js"></script>
 </body>
