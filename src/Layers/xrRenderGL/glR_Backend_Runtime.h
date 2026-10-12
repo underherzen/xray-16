@@ -248,6 +248,27 @@ ICF void CBackend::set_VS(GLuint _vs, LPCSTR _n)
     }
 }
 
+#ifdef XR_PLATFORM_WEB
+// Which of SV_Target0..2 a linked (monolithic, there are no separate shader
+// objects on WebGL2) program writes. Program names are never reused by the
+// emscripten GL layer, so caching by name is safe.
+inline u32 GetFragmentOutputsMask(GLuint program)
+{
+    static std::unordered_map<GLuint, u32> cache;
+    if (const auto it = cache.find(program); it != cache.end())
+        return it->second;
+    u32 mask = 0;
+    for (pcstr name : { "SV_Target", "SV_Target0", "SV_Target1", "SV_Target2" })
+    {
+        const GLint location = glGetFragDataLocation(program, name);
+        if (location >= 0 && location < 3)
+            mask |= 1u << location;
+    }
+    cache.emplace(program, mask);
+    return mask;
+}
+#endif
+
 ICF void CBackend::set_PP(GLuint _pp, pcstr _n)
 {
     if (pp != _pp)
@@ -266,6 +287,9 @@ ICF void CBackend::set_PP(GLuint _pp, pcstr _n)
             CHK_GL(glBindProgramPipeline(pp));
         else
             CHK_GL(glUseProgram(pp));
+#ifdef XR_PLATFORM_WEB
+        ps_outputs_mask = GetFragmentOutputsMask(pp);
+#endif
 #ifdef DEBUG
         pp_name = _n;
 #endif
@@ -408,6 +432,42 @@ ICF void CBackend::DrawIndexedBaseVertex(GLenum topology, u32 indexCount, u32 st
     SetBaseVertex(baseV);
     CHK_GL(glDrawElements(topology, indexCount, GL_UNSIGNED_SHORT, indices));
 }
+
+// Desktop GL (like D3D) lets a pixel shader write fewer targets than are
+// bound -- the rest are left untouched. WebGL2 instead drops the whole draw
+// ("Active draw buffers with missing fragment shader outputs"). Disable the
+// draw buffers the program has no output for, for the duration of the draw:
+// same result as desktop, and the engine's own glDrawBuffers state (clears,
+// blits) is left as it set it.
+ICF bool CBackend::MaskDrawBuffersToOutputs()
+{
+    if (pFB == 0)
+        return false; // default framebuffer: a single GL_BACK buffer
+    u32 bound = 0;
+    for (u32 i = 0; i < 3; ++i)
+        if (pRT[i])
+            bound |= 1u << i;
+    const u32 active = bound & ps_outputs_mask;
+    if (active == bound)
+        return false;
+    const GLenum buffers[3] = {
+        (GLenum)(active & 1 ? GL_COLOR_ATTACHMENT0 : GL_NONE),
+        (GLenum)(active & 2 ? GL_COLOR_ATTACHMENT1 : GL_NONE),
+        (GLenum)(active & 4 ? GL_COLOR_ATTACHMENT2 : GL_NONE)
+    };
+    CHK_GL(glDrawBuffers(3, buffers));
+    return true;
+}
+
+ICF void CBackend::RestoreDrawBuffers()
+{
+    const GLenum buffers[3] = {
+        (GLenum)(pRT[0] ? GL_COLOR_ATTACHMENT0 : GL_NONE),
+        (GLenum)(pRT[1] ? GL_COLOR_ATTACHMENT1 : GL_NONE),
+        (GLenum)(pRT[2] ? GL_COLOR_ATTACHMENT2 : GL_NONE)
+    };
+    CHK_GL(glDrawBuffers(3, buffers));
+}
 #endif
 
 ICF void CBackend::Render(D3DPRIMITIVETYPE T, u32 baseV, u32 startV, u32 countV, u32 startI, u32 PC)
@@ -420,7 +480,10 @@ ICF void CBackend::Render(D3DPRIMITIVETYPE T, u32 baseV, u32 startV, u32 countV,
     stat.render.polys += PC;
     constants.flush();
 #ifdef XR_PLATFORM_WEB
+    const bool masked = MaskDrawBuffersToOutputs();
     DrawIndexedBaseVertex(Topology, iIndexCount, startI, baseV);
+    if (masked)
+        RestoreDrawBuffers();
 #else
     CHK_GL(glDrawElementsBaseVertex(Topology, iIndexCount, GL_UNSIGNED_SHORT, (void*)(startI * sizeof(GLushort)), baseV));
 #endif
@@ -438,8 +501,13 @@ ICF void CBackend::Render(D3DPRIMITIVETYPE T, u32 startV, u32 PC)
     constants.flush();
 #ifdef XR_PLATFORM_WEB
     SetBaseVertex(0);
+    const bool masked = MaskDrawBuffersToOutputs();
 #endif
     CHK_GL(glDrawArrays(Topology, startV, iIndexCount));
+#ifdef XR_PLATFORM_WEB
+    if (masked)
+        RestoreDrawBuffers();
+#endif
     PGO(Msg("PGO:DIP:%dv/%df", iIndexCount, PC));
 }
 

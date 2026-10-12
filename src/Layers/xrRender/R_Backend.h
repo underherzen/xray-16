@@ -168,6 +168,8 @@ private:
     static inline u32 blend_dst_alpha = u32(-1);
     static inline u32 blend_op = u32(-1);
     static inline u32 blend_op_alpha = u32(-1);
+    // SV_Target locations the bound program declares (bit per location)
+    static inline u32 ps_outputs_mask = 0x7;
 #else
     u32 stencil_enable;
     u32 stencil_func;
@@ -441,6 +443,10 @@ public:
 #ifdef USE_OGL
     ICF void SetBaseVertex(u32 baseV);
     ICF void DrawIndexedBaseVertex(GLenum topology, u32 indexCount, u32 startI, u32 baseV);
+#endif
+#ifdef XR_PLATFORM_WEB
+    ICF bool MaskDrawBuffersToOutputs();
+    ICF void RestoreDrawBuffers();
 #endif
     ICF void set_Indices(IndexBufferHandle _ib);
     ICF void set_Geometry(SGeometry* _geom);
