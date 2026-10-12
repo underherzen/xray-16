@@ -37,8 +37,8 @@
 
 #if defined(XR_PLATFORM_WEB)
 #include <emscripten.h>
-#include "xrCore/WebProfiler.h"
 #endif
+#include "xrCore/WebProfiler.h" // XR_WEB_MARK/XR_WEB_PROF: no-ops off the web
 
 // global variables
 constexpr size_t MAX_WINDOW_EVENTS = 32;
@@ -275,13 +275,18 @@ CApplication::CApplication(pcstr commandLine, GameModule* game, const std::array
         xr_strcpy(Core.CompName, sizeof(Core.CompName), "Computer");
     }
 
+    XR_WEB_MARK(nullptr); // startup step timings: the browser tab is blocked for all of this
+    const auto startupStep = [](pcstr step) { XR_WEB_MARK(step); };
     Device.InitializeImGui();
     Device.FillVideoModes();
     TaskScheduler->Wait(inputTask);
     InitConsole();
 
+    startupStep("imgui, video modes, console");
     Engine.Initialize(game, modules);
+    startupStep("engine modules");
     Device.Initialize();
+    startupStep("device initialize");
 
     Console->OnDeviceInitialize();
 
@@ -290,6 +295,7 @@ CApplication::CApplication(pcstr commandLine, GameModule* game, const std::array
 
     TaskScheduler->Wait(createSoundDevicesList);
     Engine.Sound.Create();
+    startupStep("user script, sound");
 
     // ...command line for auto start
     pcstr startArgs = strstr(Core.Params, "-start ");
@@ -306,18 +312,22 @@ CApplication::CApplication(pcstr commandLine, GameModule* game, const std::array
     });
 
     Device.Create();
+    startupStep("device create");
     TaskScheduler->Wait(createLightAnim);
+    startupStep("light animations");
 
     if (game)
     {
         m_game_module = game;
         g_pGamePersistent = game->create_persistent();
         R_ASSERT(g_pGamePersistent);
+        startupStep("game persistent");
     }
     if (g_pGamePersistent)
         g_pGamePersistent->OnAppStart();
     else
         Console->Show();
+    startupStep("app start");
 
     FrameMarkEnd(FRAME_MARK_APPLICATION_STARTUP);
 }

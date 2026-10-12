@@ -42,6 +42,22 @@ struct Scope
 } // namespace xray::web_prof
 
 #define XR_WEB_PROF(slot) const ::xray::web_prof::Scope xr_web_prof_scope{ ::xray::web_prof::slot }
+
+// One-shot timeline marks for blocking init code: logs the time since the
+// previous mark (wall clock -- CTimer follows the game's pause/time factor).
+#define XR_WEB_MARK(what) ::xray::web_prof::mark(what)
+namespace xray::web_prof
+{
+inline double last_mark = 0.0;
+inline void mark(const char* what)
+{
+    const double now = emscripten_get_now();
+    if (last_mark > 0.0)
+        Msg("* [startup] %s: %.0f ms", what, now - last_mark);
+    last_mark = now;
+}
+} // namespace xray::web_prof
 #else
 #define XR_WEB_PROF(slot) do {} while (false)
+#define XR_WEB_MARK(what) do {} while (false)
 #endif

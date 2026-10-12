@@ -1,4 +1,5 @@
 #include "pch_script.h"
+#include "xrCore/WebProfiler.h"
 #include "GamePersistent.h"
 #include "xrCore/FMesh.hpp"
 #include "xrEngine/XR_IOConsole.h"
@@ -107,6 +108,7 @@ void CGamePersistent::OnAppStart()
 
     // load game materials
     GMLib.Load(); // XXX: not ready to be loaded in parallel. Crashes on Linux, rare crashes on Windows and bugs with water became mercury on Windows.
+    XR_WEB_MARK("game materials");
 
     // init game globals
 #ifndef XR_PLATFORM_WINDOWS
@@ -115,15 +117,20 @@ void CGamePersistent::OnAppStart()
     const auto& initializeGlobals = TaskScheduler->AddTask(init_game_globals);
 #endif
 
+    XR_WEB_MARK("game globals");
     GEnv.UI = xr_new<UICore>();
     GEnv.UI->Focus().RegisterDebuggable();
+    XR_WEB_MARK("ui core");
     m_pMainMenu = xr_new<CMainMenu>();
+    XR_WEB_MARK("main menu");
     if (GEnv.isDedicatedServer)
         m_pLoadingScreen = xr_new<NullLoadingScreen>();
     else
         m_pLoadingScreen = xr_new<UILoadingScreen>();
 
+    XR_WEB_MARK("loading screen");
     inherited::OnAppStart();
+    XR_WEB_MARK("environment, level scan");
 
 #ifdef XR_PLATFORM_WINDOWS
     ansel = xr_new<AnselManager>();
