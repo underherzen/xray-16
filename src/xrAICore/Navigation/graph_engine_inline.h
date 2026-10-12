@@ -135,4 +135,19 @@ inline bool CGraphEngine::search(const _Graph& graph, const shared_str& start_no
     STOP_PROFILE
 }
 
+// Declared in problem_solver_inline.h: graph_engine.h includes that header
+// in the middle of the CGraphEngine definition, so CProblemSolverAbstract::
+// solve() cannot call CGraphEngine::search directly (an incomplete type at
+// template definition time). The call is resolved here instead.
+template <typename TProblemSolver, typename TSolution>
+bool solve_graph_search(TProblemSolver& solver, bool reverse_search, TSolution& solution)
+{
+    // Call to ai() was replaced with GEnv.AISpace
+    // XXX: looks bad!
+    return GEnv.AISpace->graph_engine().search(solver, reverse_search ? solver.target_state() : solver.current_state(),
+        reverse_search ? solver.current_state() : solver.target_state(), &solution,
+        GraphEngineSpace::CSolverBaseParameters(
+            GraphEngineSpace::_solver_dist_type(-1), GraphEngineSpace::_solver_condition_type(-1), 8000));
+}
+
 #endif // AI_COMPILER

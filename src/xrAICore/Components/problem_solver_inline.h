@@ -11,6 +11,16 @@
 #ifndef AI_COMPILER
 #include "xrAICore/Navigation/graph_engine.h"
 #include "xrAICore/Navigation/graph_engine_space.h"
+
+// graph_engine.h includes this header in the middle of the CGraphEngine
+// definition (graph_engine -> path_manager -> path_manager_solver ->
+// problem_solver), so CGraphEngine is incomplete here and solve() below
+// must not touch it directly. Route the search call through this dependent
+// shim, declared here and defined in graph_engine_inline.h where
+// CGraphEngine is complete. Being dependent, it is resolved at
+// instantiation time, not at template definition time.
+template <typename TProblemSolver, typename TSolution>
+bool solve_graph_search(TProblemSolver& solver, bool reverse_search, TSolution& solution);
 #endif
 
 #define TEMPLATE_SPECIALIZATION                                                                                  \
@@ -367,10 +377,7 @@ IC void CProblemSolverAbstract::solve()
 
     // Call to ai() was replaced with GEnv.AISpace
     // XXX: looks bad!
-    m_failed = !GEnv.AISpace->graph_engine().search(*this, reverse_search ? target_state() : current_state(),
-        reverse_search ? current_state() : target_state(), &m_solution,
-        GraphEngineSpace::CSolverBaseParameters(
-            GraphEngineSpace::_solver_dist_type(-1), GraphEngineSpace::_solver_condition_type(-1), 8000));
+    m_failed = !solve_graph_search(*this, reverse_search, m_solution);
 #endif
 }
 
