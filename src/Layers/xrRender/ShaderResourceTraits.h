@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ResourceManager.h"
+#include "xrCore/WebProfiler.h"
 
 namespace xray::render::RENDER_NAMESPACE
 {
@@ -44,6 +45,7 @@ static void show_compile_errors(cpcstr filename, GLuint program, GLuint shader)
 template<GLenum type>
 inline std::pair<char, GLuint> GLCompileShader(pcstr* buffer, size_t size, pcstr name)
 {
+    XR_WEB_PROF(ShaderCompile);
     const GLuint shader = glCreateShader(type);
     R_ASSERT(shader);
     CHK_GL(glShaderSource(shader, size, buffer, nullptr));
@@ -137,6 +139,7 @@ static GLuint GLDepthOnlyFragmentShader()
 
 static GLuint GLLinkMonolithicProgram(pcstr name, GLuint ps, GLuint vs, GLuint gs)
 {
+    XR_WEB_PROF(ProgramLink);
 #ifdef XR_PLATFORM_WEB
     if (!vs)
     {

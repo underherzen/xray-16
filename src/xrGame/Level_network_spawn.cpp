@@ -1,4 +1,5 @@
 #include "pch_script.h"
+#include "xrCore/WebProfiler.h"
 #include "xrServer_Objects_ALife_All.h"
 #include "Level.h"
 #include "game_cl_base.h"
@@ -87,6 +88,7 @@ extern float debug_on_frame_gather_stats_frequency;
 void CLevel::g_sv_Spawn(CSE_Abstract* E)
 {
     ZoneScoped;
+    XR_WEB_PROF(ObjectSpawn);
 
 //	CTimer		T(false);
 

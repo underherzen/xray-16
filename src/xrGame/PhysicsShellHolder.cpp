@@ -1,4 +1,5 @@
 #include "pch_script.h"
+#include "xrCore/WebProfiler.h"
 
 #include "PhysicsShellHolder.h"
 #include "xrPhysics/PhysicsShell.h"
@@ -130,6 +131,7 @@ void CPhysicsShellHolder::Hit(SHit* pHDS)
 
 void CPhysicsShellHolder::create_physic_shell()
 {
+    XR_WEB_PROF(PhysicsShell);
     VERIFY(!m_pPhysicsShell);
     IPhysicShellCreator* shell_creator = smart_cast<IPhysicShellCreator*>(this);
     if (shell_creator)

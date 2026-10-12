@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "xrCore/WebProfiler.h"
 #pragma hdrstop
 
 #include "ResourceManager.h"
@@ -160,6 +161,7 @@ void CTexture::Preload()
 
 void CTexture::Load()
 {
+    XR_WEB_PROF(TextureLoad);
     flags.bLoaded = true;
     desc_cache = nullptr;
     if (pSurface)

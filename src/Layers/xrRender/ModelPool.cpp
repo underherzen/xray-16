@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "xrCore/WebProfiler.h"
 
 #include "ModelPool.h"
 
@@ -82,6 +83,7 @@ dxRender_Visual* CModelPool::Instance_Duplicate(dxRender_Visual* V)
 
 dxRender_Visual* CModelPool::Instance_Load(const char* N, BOOL allow_register)
 {
+    XR_WEB_PROF(ModelLoad);
     string_path fn;
     string_path name;
 
@@ -243,6 +245,7 @@ dxRender_Visual* CModelPool::Instance_Find(LPCSTR N)
 
 dxRender_Visual* CModelPool::Create(const char* name, IReader* data)
 {
+    XR_WEB_PROF(ModelCreate);
 #ifdef _EDITOR
     if (!name || !name[0])
         return 0;

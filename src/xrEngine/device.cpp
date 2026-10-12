@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "xrCore/WebProfiler.h"
 
 #include "Render.h"
 
@@ -237,6 +238,7 @@ void CRenderDevice::DoRender()
     {
         {
             ZoneScopedN("Render process");
+            XR_WEB_PROF(Render);
             seqRender.Process(); // all rendering is done here
         }
 

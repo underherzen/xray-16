@@ -7,6 +7,7 @@
 ////////////////////////////////////////////////////////////////////////////
 
 #include "pch_script.h"
+#include "xrCore/WebProfiler.h"
 #include "ai_stalker.h"
 #include "ai/ai_monsters_misc.h"
 #include "Weapon.h"
@@ -515,6 +516,7 @@ void CAI_Stalker::Load(LPCSTR section)
 
 bool CAI_Stalker::net_Spawn(CSE_Abstract* DC)
 {
+    XR_WEB_PROF(StalkerSpawn);
     CSE_Abstract* e = (CSE_Abstract*)(DC);
     CSE_ALifeHumanStalker* tpHuman = smart_cast<CSE_ALifeHumanStalker*>(e);
     R_ASSERT(tpHuman);

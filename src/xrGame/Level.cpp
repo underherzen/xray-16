@@ -1,4 +1,5 @@
 #include "pch_script.h"
+#include "xrCore/WebProfiler.h"
 #include "xrEngine/FDemoRecord.h"
 #include "xrEngine/FDemoPlay.h"
 #include "xrEngine/Environment.h"
@@ -592,6 +593,7 @@ void CLevel::script_gc()
     ZoneScoped;
     AIStats.LuaGC.Begin();
 
+    XR_WEB_PROF(LuaGC);
     switch (ps_lua_gc_method)
     {
     case 0:

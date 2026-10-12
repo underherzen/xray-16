@@ -7,6 +7,7 @@
 ////////////////////////////////////////////////////////////////////////////
 
 #include "pch_script.h"
+#include "xrCore/WebProfiler.h"
 #include "ai_space.h"
 #include "xrScriptEngine/script_engine.hpp"
 #include "script_binder.h"
@@ -96,6 +97,7 @@ void CScriptBinder::reload(LPCSTR section)
 
 BOOL CScriptBinder::net_Spawn(CSE_Abstract* DC)
 {
+    XR_WEB_PROF(ScriptBinderSpawn);
     CSE_Abstract* abstract = (CSE_Abstract*)DC;
     CSE_ALifeObject* object = smart_cast<CSE_ALifeObject*>(abstract);
     if (object && m_object)

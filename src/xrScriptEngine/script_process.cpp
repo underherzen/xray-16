@@ -7,6 +7,7 @@
 ////////////////////////////////////////////////////////////////////////////
 
 #include "pch.hpp"
+#include "xrCore/WebProfiler.h"
 #include "script_engine.hpp"
 #include "script_process.hpp"
 #include "script_thread.hpp"
@@ -52,6 +53,7 @@ void CScriptProcess::run_scripts()
 // changed log-output to stack-based buffer (avoid persistent 4K storage)
 void CScriptProcess::update()
 {
+    XR_WEB_PROF(ScriptUpdate);
 #ifdef DBG_DISABLE_SCRIPTS
     m_scripts_to_run.clear();
     return;

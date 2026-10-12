@@ -34,6 +34,11 @@ var XRFS_CONFIG_DEFAULTS = {
     blockSize: 64 * 1024,
     blockCacheBytes: 96 * 1024 * 1024,
     maxFetchBytes: 16 * 1024 * 1024, // also the worker transport's buffer
+    // On a miss, fetch at least this much: per-request latency, not bytes, is
+    // what small random reads cost (the sounds of an area load as a burst of
+    // ~300 small files that sit next to each other in the archives).
+    minFetchBytes: 256 * 1024,
+    maxSeqFetchBytes: 2 * 1024 * 1024,
     // Small files fetched whole are mostly read once (textures go straight to
     // the GPU), so keep only the recently used ones. Unbounded, a Zaton load
     // pinned ~1.6Gb here on top of the wasm heap.
@@ -165,6 +170,8 @@ var XRFS = {
         var per = XRFS.io.perUrl || (XRFS.io.perUrl = new Map());
         var e = per.get(url) || { n: 0, bytes: 0 };
         e.n++; e.bytes += len;
+        if (!XRFS.io.frameTop || len > XRFS.io.frameTop.bytes)
+            XRFS.io.frameTop = { url: url, bytes: len };
         per.set(url, e);
         return u8;
     },
@@ -192,6 +199,8 @@ var XRFS = {
         var per = XRFS.io.perUrl || (XRFS.io.perUrl = new Map());
         var e = per.get(url) || { n: 0, bytes: 0 };
         e.n++; e.bytes += u8.length;
+        if (!XRFS.io.frameTop || u8.length > XRFS.io.frameTop.bytes)
+            XRFS.io.frameTop = { url: url, bytes: u8.length };
         per.set(url, e);
         return u8;
     },
@@ -252,6 +261,7 @@ var XRFS = {
         XRFS.smallLru = new Map();
         XRFS.persistDirty = new Set();
         XRFS.blockBytes = 0;
+        XRFS.seqWindows = new Map();
         XRFS.loadPack();
     },
 
@@ -363,6 +373,24 @@ var XRFS = {
         }
     },
 
+    // Miss-fetch size per file: starts at minFetchBytes and doubles (up to
+    // maxSeqFetchBytes) while misses keep landing just ahead of the previous
+    // one -- e.g. an NPC's voice set, ~100 small oggs stored back to back in
+    // an archive, all loaded during its spawn. A random miss resets it, so
+    // scattered tiny reads (.thm at startup) stay cheap.
+    seqWindows: null, // path -> { next: byte offset after the last fetch, size }
+    fetchWindow: function (path, position) {
+        var w = XRFS.seqWindows.get(path);
+        var min = XRFS.cfg.minFetchBytes, max = XRFS.cfg.maxSeqFetchBytes;
+        if (w && position >= w.next - min && position <= w.next + max)
+            w.size = Math.min(w.size * 2, max);
+        else
+            w = { next: 0, size: min };
+        w.next = position + w.size;
+        XRFS.seqWindows.set(path, w);
+        return w.size;
+    },
+
     // Fetch blocks [b0, b1] of a file in one request and cache them; hint the
     // worker to read the same amount right after (sequential reads).
     fetchBlocks: function (path, size, b0, b1) {
@@ -417,6 +445,8 @@ var XRFS = {
             if (!b) {
                 // coalesce the missing blocks this read still needs
                 var lastNeeded = Math.floor((position + (length - done) - 1) / bs);
+                lastNeeded = Math.max(lastNeeded, blockNo + Math.floor(XRFS.fetchWindow(path, position) / bs) - 1);
+                lastNeeded = Math.min(lastNeeded, Math.floor((size - 1) / bs));
                 var b1 = blockNo;
                 while (b1 < lastNeeded && b1 - blockNo + 1 < maxRun && !XRFS.blocks.has(path + ':' + (b1 + 1)))
                     b1++;

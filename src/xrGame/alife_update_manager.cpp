@@ -7,6 +7,7 @@
 ////////////////////////////////////////////////////////////////////////////
 
 #include "StdAfx.h"
+#include "xrCore/WebProfiler.h"
 #include "alife_update_manager.h"
 #include "alife_simulator_header.h"
 #include "alife_time_manager.h"
@@ -77,6 +78,7 @@ float CALifeUpdateManager::shedule_Scale() const
 
 void CALifeUpdateManager::update_switch()
 {
+    XR_WEB_PROF(AlifeSwitch);
     init_ef_storage();
 
     START_PROFILE("ALife/switch");

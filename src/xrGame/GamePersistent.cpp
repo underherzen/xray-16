@@ -620,6 +620,7 @@ void CGamePersistent::OnFrame()
 
     if (!Device.Paused())
     {
+        XR_WEB_PROF(Scheduler);
         Engine.Sheduler.Update();
     }
 

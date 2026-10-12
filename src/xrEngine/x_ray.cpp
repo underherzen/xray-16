@@ -8,6 +8,7 @@
 #include "stdafx.h"
 
 #include "x_ray.h"
+#include "IGame_Level.h"
 
 #include "embedded_resources_management.h"
 
@@ -470,9 +471,44 @@ void CApplication::WebApplicationFrame()
         Device.Shutdown();
         return;
     }
+    using namespace xray::web_prof;
+    double slotMs[SlotCount];
+    for (int i = 0; i < SlotCount; ++i)
+        slotMs[i] = ms[i];
+    const double ioRequests = EM_ASM_DOUBLE({ return typeof XRFS !== 'undefined' ? XRFS.io.requests : 0; });
+    const double ioBytes = EM_ASM_DOUBLE({ return typeof XRFS !== 'undefined' ? XRFS.io.bytes : 0; });
+    const double ioMs = EM_ASM_DOUBLE({ return typeof XRFS !== 'undefined' ? XRFS.io.xhrMs : 0; });
+    EM_ASM({ if (typeof XRFS !== 'undefined') XRFS.io.frameTop = null; });
+
     const double frameStart = emscripten_get_now();
     RunApplicationFrame(s_application);
     const double frameMs = emscripten_get_now() - frameStart;
+
+    // Hitch log: what a long frame spent its time on (in-game stutter hunt).
+    if (frameMs > 50.0 && g_pGameLevel && !g_loading_events.size())
+    {
+        string1024 line;
+        xr_sprintf(line, "* [hitch] %.0f ms: io %.0f req %.0f KB %.0f ms |", frameMs,
+            EM_ASM_DOUBLE({ return typeof XRFS !== 'undefined' ? XRFS.io.requests : 0; }) - ioRequests,
+            (EM_ASM_DOUBLE({ return typeof XRFS !== 'undefined' ? XRFS.io.bytes : 0; }) - ioBytes) / 1024.0,
+            EM_ASM_DOUBLE({ return typeof XRFS !== 'undefined' ? XRFS.io.xhrMs : 0; }) - ioMs);
+        for (int i = 0; i < SlotCount; ++i)
+        {
+            const double d = ms[i] - slotMs[i];
+            if (d >= 1.0)
+            {
+                string64 item;
+                xr_sprintf(item, " %s %.0f", names[i], d);
+                xr_strcat(line, item);
+            }
+        }
+        Msg("%s", line);
+        EM_ASM({
+            var t = typeof XRFS !== 'undefined' && XRFS.io.frameTop;
+            if (t && t.bytes > 1048576)
+                console.log('* [hitch]   largest read: ' + (t.bytes / 1048576).toFixed(1) + ' MB ' + decodeURIComponent(t.url));
+        });
+    }
     s_webFrameMsSum += frameMs;
     s_webFrameMsMax = std::max(s_webFrameMsMax, frameMs);
     ++s_webFrameCount;

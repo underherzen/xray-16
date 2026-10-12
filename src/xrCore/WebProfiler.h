@@ -19,11 +19,31 @@ enum Slot
     SoundTargetUpdate,
     SoundListener,
     SoundScene,
+    SoundLoad,
+    SoundDecode,
+    TextureLoad,
+    ModelLoad,
+    ShaderCompile,
+    ProgramLink,
+    ScriptUpdate,
+    Scheduler,
+    LuaGC,
+    Render,
+    AlifeSwitch,
+    ObjectSpawn,
+    SoundCreate,
+    ScriptBinderSpawn,
+    ModelCreate,
+    PhysicsShell,
+    StalkerSpawn,
     SlotCount
 };
 
 inline const char* const names[SlotCount] = {
     "snd_update", "snd_emitters", "snd_occlusion", "snd_target_update", "snd_listener", "snd_scene",
+    "snd_load", "snd_decode", "tex_load", "model_load", "shader_compile", "program_link", "script_update",
+    "scheduler", "lua_gc", "render", "alife_switch", "object_spawn", "snd_create",
+    "script_binder_spawn", "model_create", "physics_shell", "stalker_spawn",
 };
 inline double ms[SlotCount]{};
 inline unsigned calls[SlotCount]{};
