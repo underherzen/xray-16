@@ -406,11 +406,14 @@ var XRFS = {
             var seen = {};
             var lowerPath = XRFS.fullPath(node).toLowerCase();
             XRFS.overlay.forEach(function (v, p) {
-                if (v.type === 'gone') return;
+                // direct children only: the parent of p must be this directory
+                // (idx == -1 for entries of the mount root, whose path is '')
                 var idx = p.lastIndexOf('/');
-                if (p.substring(0, idx) !== lowerPath || idx === lowerPath.length) return;
+                if (p.substring(0, Math.max(idx, 0)) !== lowerPath) return;
                 var nm = p.substring(idx + 1);
-                if (nm && !seen[nm]) { seen[nm] = 1; entries.push(v.origName || nm); }
+                if (!nm || seen[nm]) return;
+                seen[nm] = 1; // a tombstone also hides the index entry below
+                if (v.type !== 'gone') entries.push(v.origName || nm);
             });
             var tree = node.xrTree;
             if (tree) {
@@ -521,6 +524,24 @@ var XRFS = {
             XRFS.smallLru.delete(old);
             old.xrData = null; // refetched on the next read
         }
+    },
+
+    // Dev: drop extra files into the layout through the overlay before the
+    // engine scans it, e.g. { 'gamedata/scripts/web_smoke.script': 'web_smoke.script' }
+    // (index.html ?lua=). Not persisted.
+    injectFiles: function (files) {
+        Object.keys(files).forEach(function (path) {
+            try {
+                var data = XRFS.isNode()
+                    ? new Uint8Array(require('node:fs').readFileSync(files[path]))
+                    : XRFS.xhrRange(files[path]);
+                XRFS.overlay.set(path.toLowerCase(),
+                    { type: 'file', data: data, origName: path.substring(path.lastIndexOf('/') + 1) });
+                console.log('XRFS: injected ' + path + ' (' + data.length + ' bytes)');
+            } catch (e) {
+                console.log('XRFS: inject ' + path + ' failed: ' + e.message);
+            }
+        });
     },
 
     // ---- persistence (IndexedDB) -------------------------------------------
@@ -646,6 +667,7 @@ var XRFS = {
         FS.mkdirTree(cfg.mountpoint);
         FS.mount(XRFS, {}, cfg.mountpoint);
         FS.chdir(cfg.mountpoint);
+        XRFS.injectFiles(cfg.injectFiles || {});
         // Expose for dev probing (tools/web tests); harmless in production.
         Module.FS = FS;
         Module.XRFS = XRFS;

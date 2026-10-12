@@ -1,0 +1,89 @@
+-- Dev smoke helpers for the browser probes (tools/web, index.html ?lua=).
+-- Injected into gamedata/scripts through the XRFS overlay at startup and
+-- driven from ?cmd= with short calls ("run_string web_smoke.status()"):
+-- run_string itself is limited to ~240 characters (string256 in
+-- CScriptThread). Output goes through log1 (Msg), which is always on.
+
+local function say(fmt, ...)
+	log1("SMOKE " .. string.format(fmt, ...))
+end
+
+local function story_se(sid)
+	local id = get_story_object_id(sid)
+	return id and alife():object(id)
+end
+
+function status()
+	local a = db.actor
+	if not a then
+		say("no actor")
+		return
+	end
+	local p = a:position()
+	local n = 0
+	for _ in pairs(db.storage) do
+		n = n + 1
+	end
+	say("level=%s pos=%.1f,%.1f,%.1f hp=%.2f online_objects=%d game_time=%s",
+		level.name(), p.x, p.y, p.z, a.health, n, game.get_game_time():timeToString(game.CTime.TimeToMinutes))
+end
+
+-- Put the actor next to an NPC by story id (default: Beard on Skadovsk).
+function tp(sid)
+	sid = sid or "zat_a2_stalker_barmen"
+	local se = story_se(sid)
+	if not se then
+		say("tp: no object %s", sid)
+		return
+	end
+	local p = se.position
+	db.actor:set_actor_position(vector():set(p.x + 1.5, p.y, p.z))
+	say("tp: %s at %.1f,%.1f,%.1f", sid, p.x, p.y, p.z)
+end
+
+function talk(sid)
+	sid = sid or "zat_a2_stalker_barmen"
+	local npc = get_story_object(sid)
+	if not npc then
+		say("talk: %s is offline", sid)
+		return
+	end
+	say("talk: %s dist=%.1f alive=%s", sid, npc:position():distance_to(db.actor:position()), tostring(npc:alive()))
+	db.actor:run_talk_dialog(npc)
+end
+
+-- Count NPCs simulated online around the actor (the Lua AI load).
+function crowd(radius)
+	radius = radius or 50
+	local ap = db.actor:position()
+	local n = 0
+	for id, st in pairs(db.storage) do
+		local o = st.object
+		if o and IsStalker(o) and o:alive() and o:position():distance_to(ap) < radius then
+			n = n + 1
+		end
+	end
+	say("crowd: %d living stalkers within %dm", n, radius)
+end
+
+-- Static-geometry ray test (xrCDB): rays straight down from 50m above a
+-- 21x21 grid around the actor. Terrain is almost everywhere, so a healthy
+-- collider hits nearly all of them; the renderer's sector detection uses
+-- the same ray code.
+function rays(step)
+	step = step or 5
+	local ap = db.actor:position()
+	local down = vector():set(0, -1, 0)
+	local hit, total = 0, 0
+	local res = rq_result()
+	for i = -10, 10 do
+		for j = -10, 10 do
+			local p = vector():set(ap.x + i * step, ap.y + 50, ap.z + j * step)
+			total = total + 1
+			if level.ray_pick(p, down, 200, rq_target.rqtStatic, res, nil) then
+				hit = hit + 1
+			end
+		end
+	end
+	say("rays: %d/%d static hits around %.1f,%.1f,%.1f (step %dm)", hit, total, ap.x, ap.y, ap.z, step)
+end
