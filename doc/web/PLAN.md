@@ -254,5 +254,45 @@ network-free проверка, стабильность на длинных се
   - регресс: нативные сборки Lua 5.1 и JIT зелёные
   - субмодули: GameSpy (`d0974d8`, ветка wasm-port) добавлен к luabind/xrLuaFix
     как локальный не-пушенный
-- [ ] M3 (фаза B): главный цикл → `emscripten_set_main_loop`, HTTP-стриминг FS,
-  прогон в браузере до инициализации
+- [x] **M3 (фаза B): движок «Загружается» в браузере** ✅ 2026-10-12
+  - **главный цикл** → `emscripten_set_main_loop`: тело while-цикла вынесено
+    в `CApplication::RunApplicationFrame`, под `XR_PLATFORM_WEB` вешается
+    колбэком (rAF-пейсинг, `simulate_infinite_loop=true`); нативный путь —
+    тот же код в while. Попутно: под вебом не запрашиваем
+    `SDL_INIT_GAMECONTROLLER` (порт Emscripten его не умеет → SDL_Init падал
+    «Gamepads not supported»)
+  - **FS-стриминг (XRFS)**: `tools/web/` — вендоренный в `--pre-js` бэкенд
+    Emscripten FS: монтирует игровую раскладку в `/cop` + chdir до main();
+    ленивое дерево по files.json (индекс 5578 файлов, 10.4 ГБ); маленькие
+    файлы (<8 МБ) — целиком в кэш, большие — 1 МБ-блоками через HTTP Range
+    (sync XHR трюком `charset=x-user-defined` — responseType на главном
+    потоке запрещён); записи — в память поверх оверлея (COW для индексных
+    файлов: логи, user.ltx, сейвы). **Важно: errno в FS-слое этого emsdk —
+    WASI-коды (ENOENT=44, EACCES=2), не musl** — иначе движок ловит
+    «Permission denied» из ниоткуда
+  - **инфраструктура**: `serve.py` (localhost, CORS + Range; ассеты наружу
+    не уходят), `make_index.py`, `index.html`, `run_node.js`/`fsprobe.js`
+    (dev-харнесс; node есть в emsdk: `$EMSDK_NODE`); деплой — `~/dev/web`
+    (wasm + files.json + симлинк `cop -> ~/dev/cop`)
+  - **стек 16 МБ** (`-sSTACK_SIZE`): движок alloca/string4099-тяжёлый, дефолт
+    64 КБ переполняется в статические данные → дикие «memory access out of
+    bounds» глубоко в безобидном коде (libc++ ostream)
+  - **результат в браузере** (headless Chrome): FS init (42268 файлов) →
+    system.ltx → user.ltx → рендер-девайс **WebGL2** (GLSL ES 3.00) → 3417
+    .thm → 16 стартовых Lua-скриптов → `Starting engine...` → кадры идут
+    через rAF (видео-стрим тикает покадрово). Цель фазы B перевыполнена:
+    дошли не «до окна», а до работающего рендера и главного цикла
+  - **под node** движок идёт до `SDL_CreateWindow` (нужен DOM — граница
+    харнесса); `screen`/`window` стабы в run_node.js ставятся ПОСЛЕ require
+    (иначе клей считает окружение вебом и ломает fs)
+  - **символы в трейсах**: `--profiling-funcs --emit-symbol-map` — без них
+    стектрейс в браузере = бессмысленные wasm-function[N]
+  - регресс-нативно: Lua 5.1 сборка зелёная; gdb-прогон — 145 скриптов →
+    alife → уровень; единственный SIGSEGV — известный драйверный флейк
+    mesa/d3d12 в `CDetailManager::hw_Render` (деталь-трава; ловился и на
+    чистом JIT в M0.5/M1, окружение WSLg, к движку отношения не имеет)
+  - коммиты: 428d017a9 (main loop + gamepad), 2f8bde914 (tools/web),
+    2f39d5cd5 (emcc link plumbing)
+- [ ] M4 (фаза C «Главное меню»): видимое меню CoP в canvas, мышь;
+  дебаг шейдеров WebGL2 (`effects\shadow_world` blender не поддержан —
+  первый кандидат); производительность старта (3417 .thm по sync-XHR ≈ 2 мин)
