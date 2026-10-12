@@ -39,6 +39,18 @@ private:
     void InitializeDiscord();
     void UpdateDiscordStatus();
 
+    // One iteration of the application frame loop (window events + a frame),
+    // shared by the native while-loop and the web main-loop callback.
+    static void RunApplicationFrame(CApplication* app);
+
+#if defined(XR_PLATFORM_WEB)
+    // Registered with emscripten_set_main_loop: the browser owns the frame.
+    static void WebApplicationFrame();
+#endif
+
+    // The application whose frame loop is running; set by Run().
+    static CApplication* s_application;
+
 public:
     // Other
     CApplication(pcstr commandLine, GameModule* game, const std::array<RendererModule*, 2>& modules);

@@ -35,6 +35,10 @@
 #include "xrCore/Text/StringConversion.hpp"
 #endif
 
+#if defined(XR_PLATFORM_WEB)
+#include <emscripten.h>
+#endif
+
 // global variables
 constexpr size_t MAX_WINDOW_EVENTS = 32;
 
@@ -216,7 +220,14 @@ CApplication::CApplication(pcstr commandLine, GameModule* game, const std::array
     {
         ZoneScopedN("SDL_Init");
         u32 flags = SDL_INIT_VIDEO;
-        if (!strstr(commandLine, "-no_gamepad"))
+#if defined(XR_PLATFORM_WEB)
+        // The Emscripten SDL2 port has no gamepad support: SDL_Init would fail
+        // with "Gamepads not supported" and abort startup, so don't ask for it.
+        constexpr bool hasGamepads = false;
+#else
+        const bool hasGamepads = !strstr(commandLine, "-no_gamepad");
+#endif
+        if (hasGamepads)
             flags |= SDL_INIT_GAMECONTROLLER;
         R_ASSERT3(SDL_Init(flags) == 0, "Unable to initialize SDL", SDL_GetError());
     }
@@ -364,81 +375,113 @@ CApplication::~CApplication()
     FrameMarkEnd(FRAME_MARK_APPLICATION_SHUTDOWN);
 }
 
+// One iteration of the application frame loop: window events + one frame.
+// Shared by the native while-loop below and the web main-loop callback.
+CApplication* CApplication::s_application = nullptr;
+
+void CApplication::RunApplicationFrame(CApplication* app)
+{
+    FrameMarkStart(FRAME_MARK_APPLICATION_RUN);
+    bool canCallActivate = false;
+    bool shouldActivate = false;
+
+    SDL_Event events[MAX_WINDOW_EVENTS];
+    const int count = SDL_PeepEvents(events, MAX_WINDOW_EVENTS,
+        SDL_GETEVENT, SDL_WINDOWEVENT, SDL_WINDOWEVENT);
+
+    for (int i = 0; i < count; ++i)
+    {
+        const SDL_Event event = events[i];
+
+        switch (event.type)
+        {
+        case SDL_WINDOWEVENT:
+        {
+            const auto window = SDL_GetWindowFromID(event.window.windowID);
+
+            switch (event.window.event)
+            {
+            case SDL_WINDOWEVENT_SHOWN:
+            case SDL_WINDOWEVENT_FOCUS_GAINED:
+            case SDL_WINDOWEVENT_RESTORED:
+            case SDL_WINDOWEVENT_MAXIMIZED:
+                if (window != Device.m_sdlWnd)
+                    Device.OnWindowActivate(window, true);
+                else
+                {
+                    canCallActivate = true;
+                    shouldActivate = true;
+                }
+                continue;
+
+            case SDL_WINDOWEVENT_HIDDEN:
+            case SDL_WINDOWEVENT_FOCUS_LOST:
+            case SDL_WINDOWEVENT_MINIMIZED:
+                if (window != Device.m_sdlWnd)
+                    Device.OnWindowActivate(window, false);
+                else
+                {
+                    canCallActivate = true;
+                    shouldActivate = false;
+                }
+                continue;
+            } // switch (event.window.event)
+        }
+        } // switch (event.type)
+
+        // Only process event in Device
+        // if it wasn't processed in the switch above
+        Device.ProcessEvent(event);
+    } // for (int i = 0; i < count; ++i)
+
+    // Workaround for screen blinking when there's too much timeouts
+    if (canCallActivate)
+    {
+        Device.OnWindowActivate(Device.m_sdlWnd, shouldActivate);
+    }
+
+    Device.ProcessFrame();
+
+    app->UpdateDiscordStatus(); // no-op body outside Windows
+    FrameMarkEnd(FRAME_MARK_APPLICATION_RUN);
+}
+
+#if defined(XR_PLATFORM_WEB)
+// The browser owns the frame: the engine is driven by requestAnimationFrame.
+void CApplication::WebApplicationFrame()
+{
+    if (SDL_QuitRequested()) // SDL_PumpEvents is here
+    {
+        emscripten_cancel_main_loop();
+        Device.Shutdown();
+        return;
+    }
+    RunApplicationFrame(s_application);
+}
+#endif
+
 int CApplication::Run()
 {
+    s_application = this;
     HideSplash();
     Device.Run();
 
+#if defined(XR_PLATFORM_WEB)
+    // fps=0 -> requestAnimationFrame pacing; simulate_infinite_loop=true
+    // keeps the runtime alive, so Run() never returns on the web (the unwind
+    // skips C++ destructors up the stack -- fine for a process-lifetime app).
+    emscripten_set_main_loop(WebApplicationFrame, 0, true);
+    return 0;
+#else
     while (!SDL_QuitRequested()) // SDL_PumpEvents is here
     {
-        FrameMarkStart(FRAME_MARK_APPLICATION_RUN);
-        bool canCallActivate = false;
-        bool shouldActivate = false;
-
-        SDL_Event events[MAX_WINDOW_EVENTS];
-        const int count = SDL_PeepEvents(events, MAX_WINDOW_EVENTS,
-            SDL_GETEVENT, SDL_WINDOWEVENT, SDL_WINDOWEVENT);
-
-        for (int i = 0; i < count; ++i)
-        {
-            const SDL_Event event = events[i];
-
-            switch (event.type)
-            {
-            case SDL_WINDOWEVENT:
-            {
-                const auto window = SDL_GetWindowFromID(event.window.windowID);
-
-                switch (event.window.event)
-                {
-                case SDL_WINDOWEVENT_SHOWN:
-                case SDL_WINDOWEVENT_FOCUS_GAINED:
-                case SDL_WINDOWEVENT_RESTORED:
-                case SDL_WINDOWEVENT_MAXIMIZED:
-                    if (window != Device.m_sdlWnd)
-                        Device.OnWindowActivate(window, true);
-                    else
-                    {
-                        canCallActivate = true;
-                        shouldActivate = true;
-                    }
-                    continue;
-
-                case SDL_WINDOWEVENT_HIDDEN:
-                case SDL_WINDOWEVENT_FOCUS_LOST:
-                case SDL_WINDOWEVENT_MINIMIZED:
-                    if (window != Device.m_sdlWnd)
-                        Device.OnWindowActivate(window, false);
-                    else
-                    {
-                        canCallActivate = true;
-                        shouldActivate = false;
-                    }
-                    continue;
-                } // switch (event.window.event)
-            }
-            } // switch (event.type)
-
-            // Only process event in Device
-            // if it wasn't processed in the switch above
-            Device.ProcessEvent(event);
-        } // for (int i = 0; i < count; ++i)
-
-        // Workaround for screen blinking when there's too much timeouts
-        if (canCallActivate)
-        {
-            Device.OnWindowActivate(Device.m_sdlWnd, shouldActivate);
-        }
-
-        Device.ProcessFrame();
-
-        UpdateDiscordStatus();
-        FrameMarkEnd(FRAME_MARK_APPLICATION_RUN);
+        RunApplicationFrame(this);
     } // while (!SDL_QuitRequested())
 
     Device.Shutdown();
 
     return 0;
+#endif
 }
 
 void CApplication::ShowSplash(bool topmost)
