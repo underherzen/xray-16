@@ -39,6 +39,12 @@ CGameSpy_Full::~CGameSpy_Full()
 
 GSUpdateStatus CGameSpy_Full::Update()
 {
+#ifdef XR_PLATFORM_WEB
+    // Nothing to talk to from a browser: report a neutral status so the main
+    // menu raises no "online services unavailable" dialog, and skip the
+    // per-frame GameSpy think (gsCoreThink waits up to 15ms every menu frame).
+    return GSUpdateStatus::Success;
+#endif
     if (!m_bServicesAlreadyChecked)
     {
         m_bServicesAlreadyChecked = true;
