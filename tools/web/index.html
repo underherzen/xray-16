@@ -76,7 +76,8 @@
       // scope) exposes a snapshot instead.
       if (!Module.XRFS) return;
       var m = Module.XRFS.memStats(), MB = function (b) { return Math.round(b / 1048576); }; // heap can pass 2Gb: no int32 shifts
-      console.log('MEM: heap=' + MB(m.heap) + 'MB xrfs_pack=' + MB(m.pack) +
+      console.log('MEM: heap=' + MB(m.heap) + 'MB malloc_in_use=' + MB(m.mallocInUse) +
+        'MB malloc_arena=' + MB(m.mallocArena) + 'MB xrfs_pack=' + MB(m.pack) +
         'MB xrfs_small=' + MB(m.small) + 'MB xrfs_blocks=' + MB(m.blocks) + 'MB');
     }, memEvery * 1000);
   }
@@ -115,6 +116,7 @@
   if (keySeq) {
     var KEYCODES = { w: 87, a: 65, s: 83, d: 68, q: 81, e: 69, r: 82, f: 70,
         shift: 16, ctrl: 17, alt: 18, space: 32, escape: 27, enter: 13, tab: 9 };
+    for (var fk = 1; fk <= 12; fk++) KEYCODES['f' + fk] = 111 + fk; // F6 quicksave, F9 quickload
     keySeq.split(';').forEach(function (step) {
       var m = step.match(/(down|up)@([\d.]+):([\w]+)/);
       if (!m) return;
@@ -122,10 +124,11 @@
       setTimeout(function () {
         var lower = keyName.toLowerCase();
         var init = {
-          key: keyName.length === 1 ? lower : lower,
+          key: /^f\d+$/.test(lower) ? lower.toUpperCase() : lower,
           code: keyName.length === 1 ? 'Key' + keyName.toUpperCase() :
               ({ shift: 'ShiftLeft', ctrl: 'ControlLeft', alt: 'AltLeft',
-                 space: 'Space', escape: 'Escape', enter: 'Enter', tab: 'Tab' })[lower] || keyName,
+                 space: 'Space', escape: 'Escape', enter: 'Enter', tab: 'Tab' })[lower] ||
+              (/^f\d+$/.test(lower) ? lower.toUpperCase() : keyName),
           keyCode: KEYCODES[lower] || 0, which: KEYCODES[lower] || 0,
           bubbles: true, cancelable: true,
         };

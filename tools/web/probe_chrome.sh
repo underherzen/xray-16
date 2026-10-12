@@ -11,6 +11,8 @@
 # Artifacts (console.log, shot_at_Ns.png) are written to OUT_DIR
 # (default: probe_out/ under the current directory).
 #
+# PROFILE_DIR (env) reuses a chrome profile across runs (IndexedDB app data
+# persistence tests); default is a fresh temporary one.
 # CHROME_EXTRA (env) is appended to the chrome flags, e.g. the real GPU
 # instead of SwiftShader: CHROME_EXTRA="--use-angle=d3d11 --ignore-gpu-blocklist"
 #
@@ -47,7 +49,7 @@ echo "artifacts -> $OUT_DIR"
 
 timeout --kill-after=10 "${RUN_SECS}s" "$CHROME" \
     --headless=new --enable-logging=stderr --v=0 \
-    --user-data-dir="$TMP/profile" --no-first-run --window-size=1280,720 \
+    --user-data-dir="${PROFILE_DIR:-$TMP/profile}" --no-first-run --window-size=1280,720 \
     --disable-extensions --disable-background-networking --disable-component-update \
     --disable-sync --no-default-browser-check \
     ${CHROME_EXTRA:-} \

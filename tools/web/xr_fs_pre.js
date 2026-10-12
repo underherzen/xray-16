@@ -32,6 +32,11 @@ var XRFS_CONFIG_DEFAULTS = {
     // the GPU), so keep only the recently used ones. Unbounded, a Zaton load
     // pinned ~1.6Gb here on top of the wasm heap.
     smallCacheBytes: 256 * 1024 * 1024,
+    // Overlay paths under this prefix (lowercased, relative to the mount)
+    // survive page reloads in IndexedDB: saves, user.ltx, screenshots.
+    persistPrefix: '_appdata_/',
+    persistSkip: ['_appdata_/logs/'],
+    persistDb: 'xrfs-appdata',
 };
 
 var XRFS = {
@@ -129,6 +134,7 @@ var XRFS = {
         XRFS.overlay = new Map();
         XRFS.blocks = new Map();
         XRFS.smallLru = new Map();
+        XRFS.persistDirty = new Set();
         XRFS.blockOrder = [];
         XRFS.loadPack();
     },
@@ -351,10 +357,12 @@ var XRFS = {
             var node;
             if ((mode & 0xF000) === 0x4000) {
                 XRFS.overlay.set(path.toLowerCase(), { type: 'dir', origName: name });
+                XRFS.persistMark(path);
                 node = XRFS.createNode(parent, name, XRFS.DIR_MODE);
             } else {
                 var data = new Uint8Array(0);
                 XRFS.overlay.set(path.toLowerCase(), { type: 'file', data: data, origName: name });
+                XRFS.persistMark(path);
                 node = XRFS.createNode(parent, name, XRFS.FILE_MODE);
                 node.xrMem = data;
             }
@@ -377,16 +385,20 @@ var XRFS = {
                 XRFS.overlay.set(lower, { type: 'gone' });
             }
             XRFS.cacheDrop(oldPath);
+            XRFS.persistMark(oldPath);
+            XRFS.persistMark(newPath);
         },
         unlink: function (parent, name) {
             var path = XRFS.nodePath(parent) + name;
             XRFS.overlay.set(path.toLowerCase(), { type: 'gone' });
             XRFS.cacheDrop(path);
+            XRFS.persistMark(path);
             delete parent.contents[name];
         },
         rmdir: function (parent, name) {
             var path = XRFS.nodePath(parent) + name;
             XRFS.overlay.set(path.toLowerCase(), { type: 'gone' });
+            XRFS.persistMark(path);
             delete parent.contents[name];
         },
         readdir: function (node) {
@@ -443,6 +455,7 @@ var XRFS = {
             node.xrMem.set(buffer.subarray(offset, offset + length), position);
             node.size = node.xrMem.length;
             node.mtime = Date.now();
+            XRFS.persistMark(XRFS.fullPath(node));
             return length;
         },
         llseek: function (stream, offset, whence) {
@@ -493,6 +506,7 @@ var XRFS = {
             node.xrMem = bigger;
             var p = XRFS.fullPath(node);
             XRFS.overlay.set(p.toLowerCase(), { type: 'file', data: node.xrMem, origName: node.name });
+            XRFS.persistMark(p);
         }
     },
 
@@ -509,6 +523,89 @@ var XRFS = {
         }
     },
 
+    // ---- persistence (IndexedDB) -------------------------------------------
+    // The overlay is the only writable storage; entries under persistPrefix
+    // are mirrored to IndexedDB shortly after they change and restored into
+    // the overlay at preRun, before the engine looks at its app data.
+
+    persistDirty: null, // Set of lowercased paths waiting for a flush
+    persistTimer: 0,
+
+    persistWanted: function (lower) {
+        var cfg = XRFS.cfg;
+        if (XRFS.isNode() || typeof indexedDB === 'undefined') return false;
+        if (lower.indexOf(cfg.persistPrefix) !== 0) return false;
+        return !cfg.persistSkip.some(function (pre) { return lower.indexOf(pre) === 0; });
+    },
+
+    persistMark: function (path) {
+        var lower = path.toLowerCase();
+        if (!XRFS.persistWanted(lower)) return;
+        XRFS.persistDirty.add(lower);
+        // Debounced: a save is many small writes; flush once they settle.
+        clearTimeout(XRFS.persistTimer);
+        XRFS.persistTimer = setTimeout(XRFS.persistFlush, 1000);
+    },
+
+    persistOpen: function (cb) {
+        var req = indexedDB.open(XRFS.cfg.persistDb, 1);
+        req.onupgradeneeded = function () { req.result.createObjectStore('files'); };
+        req.onsuccess = function () { cb(req.result); };
+        req.onerror = function () {
+            console.log('XRFS: IndexedDB unavailable (' + req.error + '), app data is not persistent');
+            cb(null);
+        };
+    },
+
+    persistFlush: function () {
+        if (!XRFS.persistDirty.size) return;
+        var paths = Array.from(XRFS.persistDirty);
+        XRFS.persistDirty.clear();
+        XRFS.persistOpen(function (db) {
+            if (!db) return;
+            // strict: Chrome's default (relaxed) may drop the last save if the
+            // tab dies right after it
+            var tx = db.transaction('files', 'readwrite', { durability: 'strict' });
+            var store = tx.objectStore('files');
+            paths.forEach(function (lower) {
+                var ov = XRFS.overlay.get(lower);
+                if (!ov) store.delete(lower);
+                // keep tombstones: the file may also exist in the index
+                else if (ov.type === 'gone') store.put({ type: 'gone' }, lower);
+                else if (ov.type === 'dir') store.put({ type: 'dir', origName: ov.origName }, lower);
+                // slice(): the overlay buffer keeps growing in place
+                else store.put({ type: 'file', origName: ov.origName, data: ov.data.slice() }, lower);
+            });
+            tx.oncomplete = function () {
+                db.close();
+                console.log('XRFS: persisted ' + paths.length + ' app data change(s)');
+            };
+            tx.onerror = function () { console.log('XRFS: persist failed: ' + tx.error); };
+        });
+    },
+
+    persistRestore: function () {
+        if (XRFS.isNode() || typeof indexedDB === 'undefined') return;
+        addRunDependency('xrfs-persist');
+        XRFS.persistOpen(function (db) {
+            if (!db) { removeRunDependency('xrfs-persist'); return; }
+            var store = db.transaction('files', 'readonly').objectStore('files');
+            var count = 0;
+            store.openCursor().onsuccess = function (e) {
+                var cur = e.target.result;
+                if (cur) {
+                    XRFS.overlay.set(cur.key, cur.value);
+                    count++;
+                    cur.continue();
+                    return;
+                }
+                db.close();
+                if (count) console.log('XRFS: restored ' + count + ' app data entries from IndexedDB');
+                removeRunDependency('xrfs-persist');
+            };
+        });
+    },
+
     // Memory snapshot for dev probes (?mem= in index.html): the wasm heap
     // plus what XRFS holds on the JS side, both count against the tab.
     memStats: function () {
@@ -516,6 +613,8 @@ var XRFS = {
         XRFS.blocks.forEach(function (b) { blockBytes += b.length; });
         return {
             heap: HEAPU8.buffer.byteLength,
+            mallocInUse: typeof _xr_web_malloc_in_use === 'function' ? _xr_web_malloc_in_use() : -1,
+            mallocArena: typeof _xr_web_malloc_arena === 'function' ? _xr_web_malloc_arena() : -1,
             pack: XRFS.packBytes,
             small: XRFS.smallBytes,
             blocks: blockBytes,
@@ -544,3 +643,4 @@ var XRFS = {
 
 Module.preRun = Module.preRun || [];
 Module.preRun.push(XRFS.setup);
+Module.preRun.push(function () { XRFS.persistRestore(); });
