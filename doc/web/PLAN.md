@@ -324,5 +324,55 @@ network-free проверка, стабильность на длинных се
   - регресс-нативно: сборка зелёная (включая GL_BGRA-гвард), 30-с
     смоук до меню чистый; SIGTERM-выход по timeout печатает стектрейс
     в usleep (ProcessFrame) — это штатный graceful-quit, не краш
-- [ ] M5 (фаза D «Уровень»): загрузка Затона в браузере (стриминг геометрии,
-  лайтмапы, память < 2.5 ГБ), клавиатура + pointer lock, ходьба
+- [ ] **M5 (фаза D «Уровень») — В РАБОТЕ (2026-10-12, вечер)**: автостарт новой игры
+  работает, Затон грузится в браузере, к ~240 с актёр в игре (HUD, болт в руках) —
+  но сцена тёмная из-за MRT-дропов (разбор ниже). Артефакты первого прогона:
+  `~/dev/cop/_m5/` (console.log + 4 скриншота + gltest2.html)
+  - **сделано (M5-1)**: `?newgame=1`/`?args=` в index.html (Module.arguments +=
+    `-start server(all/single/alife/new)` — та же строка, что в нативе M0.5);
+    `?shot=` список через запятую (`CANVAS_SHOT[at_Ns]:...`); `?keys=down@sec:w`
+    (синтетические KeyboardEvent key/code/keyCode, пузырь до document — там слушает
+    SDL-клей); `?mem=N` — лог heap СЕЙЧАС СЛОМАН (Module.HEAPU8 не виден из
+    index.html — нужен fallback на глобальный `wasmMemory`); probe_chrome.sh пишет
+    артефакты в OUT_DIR (console.log + все shot_*.png; раньше trap их удалял)
+  - **первый прогон** (`?newgame=1&mem=15&shot=90,240,480,780`, 900 с): «New game is
+    successfully created!» (6464 спавнов Lua 5.1 в браузере), фазы уровня, HOM,
+    к 240 с — в игре: HUD, миникарта, болт; кадры идут, 0 FATAL/SIGSEGV. В конце
+    упал GPU-процесс Chrome (SwiftShader, 0xC0000005) — движок продолжил; следить
+  - **ГЛАВНЫЙ БЛОКЕР — MRT**: «GL_INVALID_OPERATION: glDrawElements: Active draw
+    buffers with missing fragment shader outputs» (тысячи) → WebGL2 дропает дрои:
+    в desktop GL можно писать меньше SV_Target, чем активных аттачментов, в WebGL2 —
+    ошибка. G-buffer вешает 3 цели (phase_scene_begin: u_setrt(rt_Position, rt_Normal,
+    rt_Color); максимум в GL-бэкенде = 3, set_pass_targets), часть шейдеров пишет
+    меньше. **ФИКС (спроектирован, не сделан)**: в essl::rewrite() (rgl_essl_web.h)
+    для фрагментной стадии добавить недостающие dummy-выходы
+    `layout(location=0..2) out vec4 xr_mrt_padN;` — вставить сразу после преамбулы
+    (top-level гарантированно). Объявленный-но-не-пишущийся выход удовлетворяет
+    проверке WebGL2; лишние выходы без аттачментов легальны в обоих направлениях
+  - **текстуры**: «0x502 Invalid 2D texture» на 4 файлах (wpn_bolt, item_key_1,
+    item_guitar, ui_actor_weapons) — ЛОЖНЫЕ срабатывания: glGetError не чистится и
+    подхватывает стейл-ошибку от MRT-дроуов; texStorage2D с DXT5 при включённом
+    WEBGL_compressed_texture_s3tc работает (проверено gltest2.html в headless Chrome;
+    мой первый тест дал INVALID_ENUM, потому что расширение было не включено —
+    emscripten включает ВСЕ расширения при создании контекста). Реальная проблема:
+    water_sbumpvolume.dds — **3D-текстура DXT5, S3TC на TEXTURE_3D запрещён в
+    WebGL2**. ФИКС: под XR_PLATFORM_WEB конвертить сжатые 3D в RGBA8 (gli::convert
+    из convert.hpp; assert `has_decoder || !compressed` — проверить CAP_DECODER_BIT
+    у DXT5) в glTexture.cpp
+  - **потоки**: блокера нет — hardware_concurrency()=1 на вебе → SpawnThreads создаёт
+    0 воркеров, таски выполняются инлайн в TaskManager::Wait()
+  - **клавиатура/pointer lock (M5-3, не начат)**: SDL2-порт emscripten слушает
+    keydown/keyup на document; движок зовёт SDL_SetRelativeMouseMode
+    (xr_input.cpp:640) → порт просит pointer lock, но Chrome требует transient
+    activation → в index.html ловить pointerlockerror и re-request по клику на canvas
+  - **инструменты** (в `~/dev`, НЕ в репо): `db_extract` — разбор .db-архивов X-Ray
+    (чанки [u32 id|0x80000000][u32 size]; индекс-чанк id=1 сжат LZHUF — декодер
+    движка LzHuf.cpp через shim-stdafx; entries: u16 size + 3×u32 + name + u32 ptr;
+    compr==real → файл хранится как есть, иначе rtc_decompress); `glitest` — парсинг
+    DDS через gli. Компиляция gli: `-IExternals/gli -IExternals/gli/external` (glm);
+    тильда после `-I` в bash НЕ раскрывается. Текстуры лежат в resources.db3/db4
+  - **ДАЛЬШЕ**: 1) dummy-outs в rgl_essl_web.h → пересборка wasm → повторный прогон
+    (сцена должна осветлиться, 2D-текстурные сообщения исчезнуть); 2) 3D DXT →
+    convert в glTexture.cpp; 3) mem-лог через wasmMemory.buffer.byteLength; 4) M5-3
+    клавиатура + lock; 5) 5-мин ходьба `?keys=down@T:w;up@T2:w`; 6) регресс натив +
+    коммиты
