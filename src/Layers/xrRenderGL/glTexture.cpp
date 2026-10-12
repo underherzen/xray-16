@@ -111,6 +111,17 @@ GLuint CRender::texture_load(pcstr fRName, u32& ret_msize, GLenum& ret_desc, u32
     gli::texture texture = gli::load((char*)S->pointer(), img_size);
     R_ASSERT2(!texture.empty(), fn);
 
+#ifdef XR_PLATFORM_WEB
+    // WebGL2 allows S3TC on 2D/cube textures only; a compressed volume
+    // (water_sbumpvolume.dds is DXT5) fails glTexStorage3D. Decode it to
+    // RGBA8 on the CPU -- volumes are rare and small.
+    if (texture.target() == gli::TARGET_3D && gli::is_compressed(texture.format())
+        && gli::has_decoder(texture.format()))
+    {
+        texture = gli::convert(gli::texture3d(texture), gli::FORMAT_RGBA8_UNORM_PACK8);
+    }
+#endif
+
     u32 mip_cnt = u32(-1); // XXX: write to it when reading with GLI!
 
 #ifdef XR_PLATFORM_WEB
