@@ -1469,7 +1469,7 @@ void CLocatorAPI::file_from_archive(IReader*& R, pcstr fname, const file& desc)
     size_t ptr_offs = desc.ptr - start;
     if (desc.size_real == desc.size_compressed)
     {
-        R = xr_new<CPackReader>(ptr, ptr + ptr_offs, desc.size_real);
+        R = xr_new<CPackReader>(ptr, sz, ptr + ptr_offs, desc.size_real);
         return;
     }
 

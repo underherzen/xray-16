@@ -459,12 +459,14 @@ CTempReader::~CTempReader() { xr_free(data); };
 CPackReader::~CPackReader()
 {
 #ifdef FS_DEBUG
-    unregister_file_mapping(base_address, Size);
+    unregister_file_mapping(base_address, map_size);
 #endif // DEBUG
 #if defined(XR_PLATFORM_WINDOWS)
     UnmapViewOfFile(base_address);
 #elif defined(XR_PLATFORM_POSIX)
-    ::munmap(base_address, Size);
+    // The full mapping length: Linux would leave the tail pages mapped, and
+    // Emscripten rejects a partial munmap (EINVAL) and frees nothing.
+    ::munmap(base_address, map_size);
 #else
 #   error Select or add implementation for your platform
 #endif

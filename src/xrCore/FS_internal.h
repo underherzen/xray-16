@@ -125,9 +125,11 @@ public:
 class CPackReader final : public IReader
 {
     void* base_address;
+    size_t map_size; // whole mapped region; the payload (Size) starts somewhere inside it
 
 public:
-    CPackReader(void* _base, void* _data, size_t _size) : IReader(_data, _size), base_address(_base) {}
+    CPackReader(void* _base, size_t _map_size, void* _data, size_t _size)
+        : IReader(_data, _size), base_address(_base), map_size(_map_size) {}
     ~CPackReader() override;
 };
 class XRCORE_API CFileReader final : public IReader

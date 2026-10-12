@@ -16,7 +16,14 @@ IC const int& CStreamReader::file_mapping_handle() const { return (m_file_mappin
 #if defined(XR_PLATFORM_WINDOWS)
 IC void CStreamReader::unmap() { UnmapViewOfFile(m_current_map_view_of_file); }
 #elif defined(XR_PLATFORM_POSIX)
-IC void CStreamReader::unmap() { ::munmap(const_cast<u8*>(m_current_map_view_of_file), m_current_window_size); }
+IC void CStreamReader::unmap()
+{
+    // map() shrinks m_current_window_size by the alignment slack in front of
+    // m_start_pointer; unmap the full region (a partial munmap leaves pages
+    // on Linux and is rejected outright by Emscripten, leaking the window).
+    const size_t mapped = m_current_window_size + (m_start_pointer - m_current_map_view_of_file);
+    ::munmap(const_cast<u8*>(m_current_map_view_of_file), mapped);
+}
 #else
 #   error Select or add implementation for your platform
 #endif
