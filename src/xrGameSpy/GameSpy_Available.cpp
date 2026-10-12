@@ -3,6 +3,13 @@
 
 bool CGameSpy_Available::CheckAvailableServices(shared_str& resultstr)
 {
+#ifdef XR_PLATFORM_WEB
+    // No GameSpy from a browser (and multiplayer is out of scope there). The
+    // check below busy-waits for a network answer that never comes: ~4s of a
+    // frozen tab while the main menu is created.
+    resultstr = "! Online Services are not available in the browser build.";
+    return false;
+#endif
     GSIACResult result;
     GSIStartAvailableCheckA(GAMESPY_GAMENAME);
 
