@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OpenXRay (wasm)</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; height: 100%; }
+  #status { position: absolute; top: 8px; left: 8px; color: #9c9; font: 12px monospace; }
+  canvas { width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="status">loading…</div>
+<script>
+  var statusElement = document.getElementById('status');
+  var Module = {
+    preRun: [],
+    postRun: [],
+    canvas: document.getElementById('canvas'),
+    arguments: ['-nosplash'],
+    print: function (t) { console.log(t); },
+    printErr: function (t) { console.error(t); },
+    setStatus: function (t) { statusElement.textContent = t; },
+    onAbort: function (t) { statusElement.textContent = 'aborted: ' + t; },
+  };
+</script>
+<script src="xr_3da.js"></script>
+</body>
+</html>
