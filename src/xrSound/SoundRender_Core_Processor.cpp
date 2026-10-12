@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "xrCore/WebProfiler.h"
 
 #include "xrEngine/Engine.h"
 #include "xrEngine/GameFont.h"
@@ -9,12 +10,33 @@
 #include "SoundRender_Target.h"
 #include "SoundRender_Source.h"
 
+#ifdef XR_PLATFORM_WEB
+#include <emscripten/emscripten.h>
+
+// The browser keeps the AudioContext suspended until the first user gesture
+// (and may suspend it later). Its clock is frozen meanwhile, so the buffers we
+// queue never play: Emscripten's OpenAL source queues grow every frame and the
+// listener update, which walks them, went from ~0.1ms to 10ms+ per frame and
+// kept climbing. Don't drive OpenAL until the context runs.
+static bool web_audio_running()
+{
+    return EM_ASM_INT({
+        return (typeof AL !== 'undefined' && AL.currentCtx && AL.currentCtx.audioCtx.state === 'running') ? 1 : 0;
+    }) != 0;
+}
+#endif
+
 void CSoundRender_Core::update(const Fvector& P, const Fvector& D, const Fvector& N, const Fvector& R)
 {
     ZoneScoped;
 
     if (0 == bReady)
         return;
+#ifdef XR_PLATFORM_WEB
+    if (!web_audio_running())
+        return;
+#endif
+    XR_WEB_PROF(SoundUpdate);
     Stats.Update.Begin();
     isLocked = true;
 
@@ -39,6 +61,8 @@ void CSoundRender_Core::update(const Fvector& P, const Fvector& D, const Fvector
         emitter->marker = s_emitters_u;
     };
 
+    {
+    XR_WEB_PROF(SoundEmitters);
     // Firstly update emitters, which are now being rendered
     for (CSoundRender_Target* T : s_targets)
     {
@@ -69,12 +93,20 @@ void CSoundRender_Core::update(const Fvector& P, const Fvector& D, const Fvector
         }
     }
 
+    }
+
     // update listener
-    update_listener(P, D, N, R, fTimer_Delta);
+    {
+        XR_WEB_PROF(SoundListener);
+        update_listener(P, D, N, R, fTimer_Delta);
+    }
 
     // Events
-    for (CSoundRender_Scene* scene : m_scenes)
-        scene->update();
+    {
+        XR_WEB_PROF(SoundScene);
+        for (CSoundRender_Scene* scene : m_scenes)
+            scene->update();
+    }
 
     isLocked = false;
     Stats.Update.End();
@@ -83,6 +115,10 @@ void CSoundRender_Core::update(const Fvector& P, const Fvector& D, const Fvector
 void CSoundRender_Core::render()
 {
     ZoneScoped;
+#ifdef XR_PLATFORM_WEB
+    if (!web_audio_running())
+        return;
+#endif
 
     isLocked = true;
     Stats.Render.Begin();
