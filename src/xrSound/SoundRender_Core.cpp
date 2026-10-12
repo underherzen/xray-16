@@ -54,6 +54,15 @@ void CSoundRender_Core::_initialize()
     bPresent = true;
 
     bReady = true;
+
+    // Dev: native runs write the header index the browser build creates
+    // sources from (tools/web; copy into the web layout's _appdata_).
+    if (strstr(Core.Params, "-dump_sound_index"))
+    {
+        string_path path;
+        FS.update_path(path, "$app_data_root$", "sound_index.bin");
+        CSoundRender_Source::DumpIndex(path);
+    }
 }
 
 void CSoundRender_Core::_clear()

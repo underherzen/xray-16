@@ -1,10 +1,12 @@
 #include "stdafx.h"
+#include "xrCore/WebProfiler.h"
 
 #include "SoundRender_Core.h"
 #include "SoundRender_Source.h"
 
 CSoundRender_Source* CSoundRender_Core::i_create_source(pcstr name)
 {
+    XR_WEB_PROF(SoundCreate);
     // Search
     string256 id;
     xr_strcpy(id, name);

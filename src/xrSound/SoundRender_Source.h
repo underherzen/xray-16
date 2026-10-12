@@ -45,6 +45,8 @@ private:
     void i_decompress(OggVorbis_File* ovf, float* dest, u32 size) const; // this overload clamps denormalized sounds
 
     bool LoadWave(pcstr name);
+    void SetupDataInfo(u32 samplesPerSec, u16 channels, s64 pcmTotal);
+    bool LoadFromIndex(pcstr id, pcstr path);
 
 public:
     CSoundRender_Source() noexcept = default;
@@ -58,6 +60,10 @@ public:
 
     bool load(pcstr name);
     void unload();
+
+    // Header data of every $game_sounds$ ogg, so a browser build can create
+    // sources without reading the files (see SoundRender_Source.cpp).
+    static void DumpIndex(pcstr path);
 
     OggVorbis_File* open() const;
     void close(OggVorbis_File*& ovf) const;
