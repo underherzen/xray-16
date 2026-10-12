@@ -274,14 +274,14 @@ void CScriptProfiler::LogHookReport(u32 entries_limit)
             break;
 
         if (total_duration > 0)
-            Msg("[P] [%3d] %9.3f ms %5.2f%%  %9.3f ms | %9d | %s", index, (*it)->second.duration() / 1000.0,
+            Msg("[P] [%3d] %9.3f ms %5.2f%%  %9.3f ms | %9d | %s", int(index), (*it)->second.duration() / 1000.0,
                 ((f64)(*it)->second.duration() * 100.0) / (f64)total_duration,
-                (f64)(*it)->second.duration() / (f64)(*it)->second.count() / 1000.0, (*it)->second.count(),
+                (f64)(*it)->second.duration() / (f64)(*it)->second.count() / 1000.0, int((*it)->second.count()),
                 (*it)->first.c_str());
         else
             // Small measurements chunks can result in 10-20 calls with ~0 total duration.
-            Msg("[P] [%3d] %9.3f ms %5.2f%%  %9.3f ms | %9d | %s", index, 0, 0, 0, (*it)->second.count(),
-                (*it)->first.c_str());
+            Msg("[P] [%3d] %9.3f ms %5.2f%%  %9.3f ms | %9d | %s", int(index), 0.0, 0.0, 0.0,
+                int((*it)->second.count()), (*it)->first.c_str());
 
         index += 1;
     }
@@ -301,7 +301,9 @@ void CScriptProfiler::LogHookReport(u32 entries_limit)
         if (index >= entries_limit)
             break;
 
-        Msg("[P] [%3d] %9d %5.2f%% | %s", index, entry->second.count(),
+        // Varargs need the exact types: a u64 for %d shifted the trace pointer on
+        // wasm32 (where varargs live in memory) and printed (null).
+        Msg("[P] [%3d] %9d %5.2f%% | %s", int(index), int(entry->second.count()),
             ((f64)entry->second.count() * 100.0) / (f64)total_count, entry->first.c_str());
 
         index += 1;
@@ -365,7 +367,7 @@ void CScriptProfiler::LogSamplingReport(u32 entries_limit)
         if (index >= entries_limit)
             break;
 
-        Msg("[P] [%3d] %9d %5.2f%% | %s", index, entry->second.m_samples,
+        Msg("[P] [%3d] %9d %5.2f%% | %s", int(index), int(entry->second.m_samples),
             ((f64)entry->second.m_samples * 100.0) / (f64)total_count, entry->first.c_str());
 
         index += 1;
