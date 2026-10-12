@@ -130,9 +130,15 @@ elseif (PROJECT_PLATFORM_PPC)
 elseif (EMSCRIPTEN)
     # WebAssembly: host ISA flags are meaningless; use wasm SIMD instead.
     add_compile_options(-msimd128)
+    # Enable the x86 SSE compatibility layer (emscripten/em_intrinsics.h):
+    # with __SSE__ defined, __m128 and the _mm_* intrinsics map onto
+    # wasm_simd128.h, which the engine's SSE code (xrCDB, xrCpuUsage etc) uses.
+    add_compile_definitions(__SSE__ __SSE2__)
     # Pull in the SDL2 port headers (the sysroot ships fake SDL headers
     # that fail compilation without this flag).
     add_compile_options(-sUSE_SDL=2)
+    # Ogg/Vorbis and JPEG ports: needed at compile time for their headers.
+    add_compile_options(-sUSE_VORBIS=1 -sUSE_LIBJPEG=1)
 else()
     add_compile_options(
         -mfpmath=sse
@@ -160,20 +166,25 @@ if (NOT WIN32 AND NOT EMSCRIPTEN) # Emscripten provides these as ports (-sUSE_*)
 endif()
 
 if (EMSCRIPTEN)
-    # SDL2 and OpenAL are provided by Emscripten ports, enabled with the
-    # -sUSE_SDL=2 / -sUSE_OPENAL=1 link flags on the final wasm link.
-    # Ogg/Vorbis/JPEG similarly exist as ports; LZO has no port yet and will
-    # be vendored in-tree. Expose interface targets for target_link_libraries
-    # consumers so per-target builds (xrCore and friends) configure cleanly.
+    # SDL2 is an Emscripten port, enabled with the -sUSE_SDL=2 flag.
+    # Ogg/Vorbis/JPEG similarly exist as ports (-sUSE_VORBIS / -sUSE_LIBJPEG).
+    # LZO has no port and is vendored in-tree. OpenAL has no port in current
+    # emsdk; the sysroot ships the AL headers (for a WebAudio-based runtime
+    # to be wired at the link stage), so expose the include dir only.
+    # Expose interface targets for target_link_libraries consumers so
+    # per-target builds (xrCore and friends) configure cleanly.
     add_library(SDL2::SDL2 INTERFACE IMPORTED)
     add_library(SDL2::SDL INTERFACE IMPORTED)
     add_library(OpenAL::OpenAL INTERFACE IMPORTED)
+    set_target_properties(OpenAL::OpenAL PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${EMSCRIPTEN_SYSROOT}/include/AL"
+    )
     add_library(Ogg::Ogg INTERFACE IMPORTED)
     add_library(Vorbis::Vorbis INTERFACE IMPORTED)
     add_library(Vorbis::VorbisFile INTERFACE IMPORTED)
-    add_library(Theora::Theora INTERFACE IMPORTED)
     add_library(JPEG::JPEG INTERFACE IMPORTED)
-    # no LZO::LZO stub: the vendored Externals/lzo provides the real target
+    # no LZO::LZO and Theora::Theora stubs: the vendored
+    # Externals/lzo and Externals/theora provide the real targets
 endif()
 
 # Memory allocator option

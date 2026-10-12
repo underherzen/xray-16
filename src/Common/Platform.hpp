@@ -72,9 +72,13 @@
 #   define _XRAY_ARCHITECTURE_MARKER "E2K"
 #elif defined(__wasm32__) || defined(__wasm64__)
 #   define XR_ARCHITECTURE_WASM
+// The upstream WebAssembly groundwork also refers to the width-specific
+// names; define them alongside the generic one.
 #   if defined(__wasm64__)
+#       define XR_ARCHITECTURE_WASM64
 #       define _XRAY_ARCHITECTURE_MARKER "WebAssembly 64-bit"
 #   else
+#       define XR_ARCHITECTURE_WASM32
 #       define _XRAY_ARCHITECTURE_MARKER "WebAssembly 32-bit"
 #   endif
 #else
