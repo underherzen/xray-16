@@ -133,6 +133,18 @@
     });
   }
 
+  // Dev probe: ?fsprof=SEC -- time the XRFS / FS ops, report at SEC.
+  var fsProfAt = +params.get('fsprof') || 0;
+  if (fsProfAt > 0) {
+    window.XRFS_CONFIG = window.XRFS_CONFIG || {};
+    XRFS_CONFIG.profile = true;
+    setTimeout(function () {
+      Module.XRFS.profTop().forEach(function (r) {
+        console.log('FSPROF ' + r[0] + ' n=' + r[1] + ' ms=' + Math.round(r[2]));
+      });
+    }, fsProfAt * 1000);
+  }
+
   // Dev probe: ?iotop=SEC -- the files XRFS fetched most bytes of, by then.
   var ioTopAt = +params.get('iotop') || 0;
   if (ioTopAt > 0) {

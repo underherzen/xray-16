@@ -26,8 +26,14 @@ var XRFS_CONFIG_DEFAULTS = {
     indexFile: null, // node only: path to files.json
     packFile: null,  // node only: path to pack.bin
     smallFileLimit: 8 * 1024 * 1024,
-    blockSize: 1024 * 1024,
-    blockCacheBlocks: 96,
+    // Big files (archives) are cached in small blocks: the engine reads lots
+    // of tiny files out of the .db archives at random (3417 .thm before the
+    // menu), and 1Mb blocks turned each of those into a 1Mb fetch (~625Mb
+    // read before the menu). Long reads still go out as one request: missing
+    // neighbouring blocks are coalesced up to maxFetchBytes.
+    blockSize: 64 * 1024,
+    blockCacheBytes: 96 * 1024 * 1024,
+    maxFetchBytes: 16 * 1024 * 1024, // also the worker transport's buffer
     // Small files fetched whole are mostly read once (textures go straight to
     // the GPU), so keep only the recently used ones. Unbounded, a Zaton load
     // pinned ~1.6Gb here on top of the wasm heap.
@@ -56,7 +62,7 @@ var XRFS = {
     index: null,   // tree: { dirs: { lower: [origName, subtree] }, files: { lower: [origName, size, mtime] } }
     overlay: null, // Map: path -> { type:'dir' } | { type:'file', data:Uint8Array }
     blocks: null,  // Map: "path:blockNo" -> Uint8Array (LRU)
-    blockOrder: null,
+    blockBytes: 0, // bytes held in blocks (Map insertion order = LRU order)
     seed: null,    // Map: lowercased path -> Uint8Array, from the startup pack
     packBytes: 0,  // startup pack size (stays alive while any seeded view is)
     smallBytes: 0, // small files fetched whole, held in smallLru
@@ -155,6 +161,10 @@ var XRFS = {
         XRFS.io.requests++;
         XRFS.io.bytes += len;
         XRFS.io.xhrMs += t1 - t0;
+        var per = XRFS.io.perUrl || (XRFS.io.perUrl = new Map());
+        var e = per.get(url) || { n: 0, bytes: 0 };
+        e.n++; e.bytes += len;
+        per.set(url, e);
         return u8;
     },
 
@@ -191,7 +201,7 @@ var XRFS = {
     },
 
     // Read [start, end) of a file from the environment.
-    readRange: function (path, start, end) {
+    readRange: function (path, start, end, aheadStart, aheadEnd) {
         if (XRFS.isNode()) {
             var fs = require('node:fs');
             var full = XRFS.cfg.baseDir + '/' + path;
@@ -206,13 +216,9 @@ var XRFS = {
             }
         }
         var data = null;
-        if (XRFS.sab) {
-            // read-ahead hint: the next block of the same file
-            var bs = XRFS.cfg.blockSize, size = end - start === bs ? Infinity : 0;
-            var ns = end, ne = end + bs - 1;
+        if (XRFS.sab)
             data = XRFS.sabRange(XRFS.urlFor(path), start, end - 1,
-                size ? ns : undefined, size ? ne : undefined);
-        }
+                aheadStart, aheadEnd === undefined ? undefined : aheadEnd - 1);
         if (!data) data = XRFS.xhrRange(XRFS.urlFor(path), start, end - 1);
         if (data.length > end - start) data = data.subarray(0, end - start);
         return data;
@@ -244,7 +250,7 @@ var XRFS = {
         XRFS.blocks = new Map();
         XRFS.smallLru = new Map();
         XRFS.persistDirty = new Set();
-        XRFS.blockOrder = [];
+        XRFS.blockBytes = 0;
         XRFS.loadPack();
     },
 
@@ -332,20 +338,43 @@ var XRFS = {
 
     // ---- block cache for large files --------------------------------------
 
-    getBlock: function (path, blockNo, size, node) {
+    blockGet: function (path, blockNo) {
         var key = path + ':' + blockNo;
         var b = XRFS.blocks.get(key);
-        if (b) return b;
-        var start = blockNo * XRFS.cfg.blockSize;
-        var end = Math.min(start + XRFS.cfg.blockSize, size);
-        b = XRFS.readRange(path, start, end);
-        XRFS.blocks.set(key, b);
-        XRFS.blockOrder.push(key);
-        if (XRFS.blockOrder.length > XRFS.cfg.blockCacheBlocks) {
-            var drop = XRFS.blockOrder.shift();
-            XRFS.blocks.delete(drop);
+        if (b) { // refresh LRU position
+            XRFS.blocks.delete(key);
+            XRFS.blocks.set(key, b);
         }
         return b;
+    },
+
+    blockPut: function (path, blockNo, b) {
+        var key = path + ':' + blockNo;
+        var old = XRFS.blocks.get(key);
+        if (old) { XRFS.blockBytes -= old.length; XRFS.blocks.delete(key); }
+        XRFS.blocks.set(key, b);
+        XRFS.blockBytes += b.length;
+        var it = XRFS.blocks.keys();
+        while (XRFS.blockBytes > XRFS.cfg.blockCacheBytes && XRFS.blocks.size > 1) {
+            var k = it.next().value;
+            XRFS.blockBytes -= XRFS.blocks.get(k).length;
+            XRFS.blocks.delete(k);
+        }
+    },
+
+    // Fetch blocks [b0, b1] of a file in one request and cache them; hint the
+    // worker to read the same amount right after (sequential reads).
+    fetchBlocks: function (path, size, b0, b1) {
+        var bs = XRFS.cfg.blockSize;
+        var start = b0 * bs, end = Math.min((b1 + 1) * bs, size);
+        var aheadEnd = Math.min(end + (end - start), size);
+        var data = XRFS.readRange(path, start, end, end < size ? end : undefined, end < size ? aheadEnd : undefined);
+        for (var b = b0; b <= b1; b++) {
+            var off = (b - b0) * bs;
+            if (off >= data.length) break;
+            // slice: a subarray would keep the whole fetch alive
+            XRFS.blockPut(path, b, data.slice(off, Math.min(off + bs, data.length)));
+        }
     },
 
     readIndexBytes: function (node, dst, offset, position, length) {
@@ -375,13 +404,26 @@ var XRFS = {
             dst.set(node.xrData.subarray(position, position + n), offset);
             return n;
         }
+        var bs = XRFS.cfg.blockSize;
+        length = Math.min(length, size - position);
+        if (length <= 0) return 0;
+        var maxRun = Math.max(1, Math.floor(XRFS.cfg.maxFetchBytes / bs));
         var done = 0;
         while (done < length) {
-            var blockNo = Math.floor(position / XRFS.cfg.blockSize);
-            var inBlock = position % XRFS.cfg.blockSize;
-            var want = Math.min(length - done, XRFS.cfg.blockSize - inBlock);
-            var b = XRFS.getBlock(path, blockNo, size, node);
-            var take = Math.min(want, b.length - inBlock);
+            var blockNo = Math.floor(position / bs);
+            var inBlock = position % bs;
+            var b = XRFS.blockGet(path, blockNo);
+            if (!b) {
+                // coalesce the missing blocks this read still needs
+                var lastNeeded = Math.floor((position + (length - done) - 1) / bs);
+                var b1 = blockNo;
+                while (b1 < lastNeeded && b1 - blockNo + 1 < maxRun && !XRFS.blocks.has(path + ':' + (b1 + 1)))
+                    b1++;
+                XRFS.fetchBlocks(path, size, blockNo, b1);
+                b = XRFS.blockGet(path, blockNo);
+                if (!b) break;
+            }
+            var take = Math.min(length - done, bs - inBlock, b.length - inBlock);
             if (take <= 0) break;
             dst.set(b.subarray(inBlock, inBlock + take), offset + done);
             position += take; done += take;
@@ -587,11 +629,11 @@ var XRFS = {
             if (!ptr) throw new FS.ErrnoError(XRFS.E.ENOMEM);
             var node = stream.node;
             var written = 0;
-            var CH = 1 << 16;
             var tmp = new Uint8Array(HEAPU8.buffer, ptr, length);
+            // one read call: lets the block cache coalesce the region into a
+            // few large fetches instead of one per 64Kb
             while (written < length) {
-                var want = Math.min(CH, length - written);
-                var got = XRFS.stream_ops.read(stream, tmp, written, want, position + written);
+                var got = XRFS.stream_ops.read(stream, tmp, written, length - written, position + written);
                 if (got <= 0) break;
                 written += got;
             }
@@ -747,6 +789,32 @@ var XRFS = {
         return ctx.audioCtx.state + ' ' + playing + '/' + total;
     },
 
+    // Dev probe ?fsprof=1: time every XRFS node/stream op and the generic
+    // Emscripten FS entry points the engine's syscalls go through.
+    prof: null,
+    profileOps: function () {
+        XRFS.prof = {};
+        function wrap(obj, name, label) {
+            var fn = obj[name];
+            if (typeof fn !== 'function') return;
+            var rec = XRFS.prof[label] = { n: 0, ms: 0 };
+            obj[name] = function () {
+                var t = performance.now();
+                try { return fn.apply(this, arguments); }
+                finally { rec.n++; rec.ms += performance.now() - t; }
+            };
+        }
+        Object.keys(XRFS.node_ops).forEach(function (k) { wrap(XRFS.node_ops, k, 'node.' + k); });
+        Object.keys(XRFS.stream_ops).forEach(function (k) { wrap(XRFS.stream_ops, k, 'stream.' + k); });
+        ['lookupPath', 'open', 'close', 'stat', 'readdir', 'mmap', 'read', 'write', 'llseek']
+            .forEach(function (k) { wrap(FS, k, 'FS.' + k); });
+    },
+    profTop: function () {
+        var rows = Object.keys(XRFS.prof || {}).map(function (k) { return [k, XRFS.prof[k].n, XRFS.prof[k].ms]; });
+        rows.sort(function (a, b) { return b[2] - a[2]; });
+        return rows.filter(function (r) { return r[1]; });
+    },
+
     // Top-N URLs by bytes fetched (dev probe ?iotop=SEC).
     ioTop: function (n) {
         var rows = [];
@@ -773,8 +841,9 @@ var XRFS = {
     },
 
     cacheDrop: function (path) {
-        XRFS.blocks.delete(path);
-        XRFS.blockOrder = XRFS.blockOrder.filter(function (k) { return k.indexOf(path + ':') !== 0; });
+        var prefix = path + ':', drop = [];
+        XRFS.blocks.forEach(function (b, k) { if (k.indexOf(prefix) === 0) drop.push(k); });
+        drop.forEach(function (k) { XRFS.blockBytes -= XRFS.blocks.get(k).length; XRFS.blocks.delete(k); });
     },
 
     setup: function () {
@@ -783,6 +852,7 @@ var XRFS = {
             throw new Error('XRFS: node needs XRFS_CONFIG.baseDir');
         XRFS.cfg = cfg;
         XRFS.sabInit();
+        if (cfg.profile) XRFS.profileOps();
         FS.mkdirTree(cfg.mountpoint);
         FS.mount(XRFS, {}, cfg.mountpoint);
         FS.chdir(cfg.mountpoint);

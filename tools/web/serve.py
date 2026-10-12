@@ -7,9 +7,42 @@ Usage: serve.py [docroot] [port]
 
 import os
 import re
+import stat
 import sys
+import threading
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+
+# Open files for Range requests, kept across requests: the game layout links
+# into the Windows install, which WSL2 serves over 9P where every open/stat
+# costs ~2ms -- per 64Kb block that dominated the browser's load time.
+# (path -> (fd, size)). Never invalidated: restart the server after changing
+# the layout (regenerating files.json/pack.bin means a restart anyway).
+_FILES = {}
+_FILES_LOCK = threading.Lock()
+
+
+def _open_cached(path):
+    with _FILES_LOCK:
+        hit = _FILES.get(path)
+        if hit:
+            return hit
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return None
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode):  # directories open fine on Linux
+        os.close(fd)
+        return None
+    size = st.st_size
+    with _FILES_LOCK:
+        if path in _FILES:  # lost a race: keep the first
+            os.close(fd)
+            return _FILES[path]
+        _FILES[path] = (fd, size)
+        return fd, size
 
 
 class RangeHandler(SimpleHTTPRequestHandler):
@@ -35,10 +68,10 @@ class RangeHandler(SimpleHTTPRequestHandler):
             return super().send_head()
 
         path = self.translate_path(self.path)
-        if not os.path.isfile(path):
+        cached = _open_cached(path)
+        if cached is None:
             return super().send_head()
-
-        size = os.path.getsize(path)
+        fd, size = cached
         match = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header.strip())
         if not match:
             self.send_response(416)
@@ -61,24 +94,27 @@ class RangeHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(end - start + 1))
         self.send_header("Content-Type", self.guess_type(path))
         self.end_headers()
-        return _SliceFile(path, start, end)
+        return _SliceFile(fd, start, end)
 
 
 class _SliceFile:
-    def __init__(self, path, start, end):
-        self.f = open(path, "rb")
-        self.f.seek(start)
+    """A byte range of a cached fd, read with pread (no shared file position)."""
+
+    def __init__(self, fd, start, end):
+        self.fd = fd
+        self.pos = start
         self.remaining = end - start + 1
 
-    def read(self, size=65536):
+    def read(self, size=1 << 20):
         if self.remaining <= 0:
             return b""
-        data = self.f.read(min(size, self.remaining))
+        data = os.pread(self.fd, min(size, self.remaining), self.pos)
+        self.pos += len(data)
         self.remaining -= len(data)
         return data
 
     def close(self):
-        self.f.close()
+        pass  # the fd stays cached
 
 
 def main() -> None:
