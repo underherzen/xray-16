@@ -37,7 +37,15 @@ struct alignas(16) ray_t
     vec_t fwd_dir;
 };
 
-ICF u32& uf(float& x) { return (u32&)x; }
+// Bit pattern of a float. Reading it through a u32& is a strict-aliasing
+// violation that clang at -O3 (Emscripten builds) is free to break, and it
+// did: every FPU-path ray missed.
+ICF u32 uf(float x)
+{
+    u32 bits;
+    std::memcpy(&bits, &x, sizeof(bits));
+    return bits;
+}
 ICF bool isect_fpu(const Fvector& min, const Fvector& max, const ray_t& ray, Fvector& coord)
 {
     Fvector MaxT;
@@ -231,6 +239,14 @@ public:
         ray.pos.set(C);
         ray.inv_dir.set(1.f, 1.f, 1.f).div(D);
         ray.fwd_dir.set(D);
+        // isect_sse loads pos/inv_dir as 4 floats and reduces min/max over all
+        // lanes. The box's 4th lane is 0, so (0 - 0) * inf = NaN here, which
+        // the slab filter turns into a neutral [-inf, +inf]. Left uninitialized
+        // the lane holds stack garbage: a finite value clamps the slab and
+        // most rays miss (all of them did under Emscripten).
+        ray.pos.pad = 0.f;
+        ray.inv_dir.pad = flt_plus_inf;
+        ray.fwd_dir.pad = 0.f;
         rRange = R;
         rRange2 = R * R;
         if constexpr (!bUseSSE)

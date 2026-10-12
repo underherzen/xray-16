@@ -36,7 +36,14 @@ struct alignas(16) ray_t
     vec_t fwd_dir;
 };
 
-ICF u32& uf(float& x) { return (u32&)x; }
+// Bit pattern of a float, without the strict-aliasing violation of a u32&
+// cast (see xrCDB_ray.cpp: clang at -O3 broke every FPU-path ray).
+ICF u32 uf(float x)
+{
+    u32 bits;
+    std::memcpy(&bits, &x, sizeof(bits));
+    return bits;
+}
 ICF bool isect_fpu(const Fvector& min, const Fvector& max, const ray_t& ray, Fvector& coord)
 {
     Fvector MaxT;
@@ -227,6 +234,12 @@ public:
         ray.pos.set(_start);
         ray.inv_dir.set(1.f, 1.f, 1.f).div(_dir);
         ray.fwd_dir.set(_dir);
+        // The SSE slab test reduces over all 4 lanes; make the padding lane
+        // neutral ((0 - 0) * inf = NaN, filtered to [-inf, +inf]) instead of
+        // leaving stack garbage in it.
+        ray.pos.pad = 0.f;
+        ray.inv_dir.pad = flt_plus_inf;
+        ray.fwd_dir.pad = 0.f;
         if constexpr (!b_use_sse)
         {
             // for FPU - zero out inf
