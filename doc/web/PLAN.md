@@ -222,6 +222,37 @@ network-free проверка, стабильность на длинных се
   - **находка для M2**: emcc имеет compat-слой x86 SSE поверх `wasm_simd128.h`:
     `-msimd128 -D__SSE__` → `__m128`/`_mm_*` работают (проверено хеллоуворлдом);
     это план для xrCDB (`ISpatial_q_ray.cpp` требует `__m128`)
-- [ ] M2: `-D__SSE__` для SSE-кода + сборка остальных библиотек по цепочке зависимостей
-  (`xrCDB → xrAPI → xrSound → xrUICore → xrPhysics/ODE/OPCODE → xrParticles →
-  xrNetServer → xrServerEntities → xrScriptEngine → xrAICore → xrGame → xrEngine/xr_3da`)
+- [x] **M2: SSE-compat + вся цепочка библиотек + линковка xr_3da.wasm** ✅ 2026-10-12
+  - **SSE**: `-msimd128 -D__SSE__ -D__SSE2__` — emcc имеет compat-слой x86 SSE
+    поверх `wasm_simd128.h`; арх-цепочки интринсиков приняли `XR_ARCHITECTURE_WASM`
+    (xrCDB `ISpatial_q_ray`/`xrCDB_ray`, xrParticles `noise`/`particle_actions_collection`);
+    `Platform.hpp` теперь определяет и апстримовские `XR_ARCHITECTURE_WASM32/64`
+    (на них ссылается заготовка 985a70116 в DetailManager/ParticleEffect)
+  - **медиа-порты**: `-sUSE_VORBIS=1 -sUSE_LIBJPEG=1` на компиле (заголовки);
+    **libtheora 1.1.1 вендорена** (`Externals/theora`, порта emsdk нет);
+    OpenAL — заголовки из sysroot `include/AL` (порт убран из emsdk 6.x,
+    сама либа есть: линкер получает `-lal`, WebAudio-реализация)
+  - **GameSpy** (субмодуль, ветка wasm-port): `__EMSCRIPTEN__` → `_LINUX/_UNIX`
+    (тот же BSD-sockets API, компил-онли)
+  - **xrAICore include-цикл**: `graph_engine.h` включает problem_solver-заголовки
+    посреди определения `CGraphEngine`, и `solve()` трогал незавершённый тип.
+    GCC откладывает проверку до инстанциации, clang — нет (эмсripten = clang).
+    Фикс: зависимый шим `solve_graph_search` (объявлен в problem_solver_inline.h,
+    определён в graph_engine_inline.h)
+  - **линковка xr_3da**: линк-флаги портов в `src/xr_3da/CMakeLists.txt`
+    (`-sUSE_SDL=2 -sUSE_VORBIS=1 -sUSE_LIBJPEG=1 -sALLOW_MEMORY_GROWTH=1
+    -sMAX_WEBGL_VERSION=2` — последний переключает GL-либу на WebGL2-вариацию,
+    где живёт `glDrawElementsInstancedBaseVertexBaseInstanceWEBGL`);
+    `pthread_setname_np` отключён на однопоточном wasm
+  - **результат**: `bin/x86/Release/xr_3da.js` (271 КБ) + `xr_3da.wasm` (23.3 МБ);
+    под node движок входит в `main()` и доходит до опроса экрана SDL (падение на
+    браузерном `screen` API — норма вне браузера; фаза A «компилируется» закрыта)
+  - цепочка: xrCore → xrCDB → xrAPI → xrSound → xrUICore → xrPhysics/xrODE/xrOPCODE →
+    xrParticles → xrNetServer/xrGameSpy → xrScriptEngine → xrAICore → xrGame →
+    xrRender_GL/xrImGui/xrMaterialSystem → **xr_3da** — все зелёные под emcc;
+    xrGame собрался с нуля без единой правки
+  - регресс: нативные сборки Lua 5.1 и JIT зелёные
+  - субмодули: GameSpy (`d0974d8`, ветка wasm-port) добавлен к luabind/xrLuaFix
+    как локальный не-пушенный
+- [ ] M3 (фаза B): главный цикл → `emscripten_set_main_loop`, HTTP-стриминг FS,
+  прогон в браузере до инициализации
