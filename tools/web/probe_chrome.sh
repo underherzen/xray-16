@@ -11,6 +11,9 @@
 # Artifacts (console.log, shot_at_Ns.png) are written to OUT_DIR
 # (default: probe_out/ under the current directory).
 #
+# CHROME_EXTRA (env) is appended to the chrome flags, e.g. the real GPU
+# instead of SwiftShader: CHROME_EXTRA="--use-angle=d3d11 --ignore-gpu-blocklist"
+#
 # Notes:
 #  - real-time run (no --virtual-time-budget): the engine's main loop is
 #    driven by rAF, which virtual time does not pump after exhaustion
@@ -47,6 +50,7 @@ timeout --kill-after=10 "${RUN_SECS}s" "$CHROME" \
     --user-data-dir="$TMP/profile" --no-first-run --window-size=1280,720 \
     --disable-extensions --disable-background-networking --disable-component-update \
     --disable-sync --no-default-browser-check \
+    ${CHROME_EXTRA:-} \
     "$URL" 2>"$LOG"
 RC=$?
 echo "chrome exit: $RC"

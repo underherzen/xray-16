@@ -28,6 +28,10 @@ var XRFS_CONFIG_DEFAULTS = {
     smallFileLimit: 8 * 1024 * 1024,
     blockSize: 1024 * 1024,
     blockCacheBlocks: 96,
+    // Small files fetched whole are mostly read once (textures go straight to
+    // the GPU), so keep only the recently used ones. Unbounded, a Zaton load
+    // pinned ~1.6Gb here on top of the wasm heap.
+    smallCacheBytes: 256 * 1024 * 1024,
 };
 
 var XRFS = {
@@ -49,6 +53,9 @@ var XRFS = {
     blocks: null,  // Map: "path:blockNo" -> Uint8Array (LRU)
     blockOrder: null,
     seed: null,    // Map: lowercased path -> Uint8Array, from the startup pack
+    packBytes: 0,  // startup pack size (stays alive while any seeded view is)
+    smallBytes: 0, // small files fetched whole, held in smallLru
+    smallLru: null, // Map: node -> bytes, oldest first (Map keeps insertion order)
 
     isNode: function () {
         return typeof ENVIRONMENT_IS_NODE !== 'undefined' && ENVIRONMENT_IS_NODE;
@@ -121,6 +128,7 @@ var XRFS = {
         XRFS.index = root;
         XRFS.overlay = new Map();
         XRFS.blocks = new Map();
+        XRFS.smallLru = new Map();
         XRFS.blockOrder = [];
         XRFS.loadPack();
     },
@@ -162,6 +170,7 @@ var XRFS = {
                 XRFS.seed.set(key, data.subarray(off, off + size));
                 off += size;
             }
+            XRFS.packBytes = data.byteLength;
             console.log('XRFS: startup pack seeded ' + count + ' files');
         } catch (e) {
             XRFS.seed = new Map();
@@ -234,12 +243,17 @@ var XRFS = {
                     XRFS.seed.delete(path.toLowerCase()); // the view keeps the pack alive
                 } else {
                     node.xrData = XRFS.readRange(path, 0, size);
+                    XRFS.smallTrack(node);
                 }
                 node.size = node.xrData.length; // trust the server/pack over the index
                 if (node.xrData.length !== size)
                     console.log('XRFS WARNING: ' + path + ' index size ' + size +
                         ' != actual ' + node.xrData.length +
                         ' -- regenerate files.json and pack.bin together, deploy both');
+            }
+            if (XRFS.smallLru.has(node)) { // refresh LRU position
+                XRFS.smallLru.delete(node);
+                XRFS.smallLru.set(node, node.xrData.length);
             }
             var n = Math.min(length, node.xrData.length - position);
             if (n <= 0) return 0;
@@ -480,6 +494,32 @@ var XRFS = {
             var p = XRFS.fullPath(node);
             XRFS.overlay.set(p.toLowerCase(), { type: 'file', data: node.xrMem, origName: node.name });
         }
+    },
+
+    smallTrack: function (node) {
+        XRFS.smallLru.set(node, node.xrData.length);
+        XRFS.smallBytes += node.xrData.length;
+        var it = XRFS.smallLru.keys();
+        while (XRFS.smallBytes > XRFS.cfg.smallCacheBytes && XRFS.smallLru.size > 1) {
+            var old = it.next().value;
+            if (old === node) break;
+            XRFS.smallBytes -= XRFS.smallLru.get(old);
+            XRFS.smallLru.delete(old);
+            old.xrData = null; // refetched on the next read
+        }
+    },
+
+    // Memory snapshot for dev probes (?mem= in index.html): the wasm heap
+    // plus what XRFS holds on the JS side, both count against the tab.
+    memStats: function () {
+        var blockBytes = 0;
+        XRFS.blocks.forEach(function (b) { blockBytes += b.length; });
+        return {
+            heap: HEAPU8.buffer.byteLength,
+            pack: XRFS.packBytes,
+            small: XRFS.smallBytes,
+            blocks: blockBytes,
+        };
     },
 
     cacheDrop: function (path) {

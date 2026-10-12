@@ -43,6 +43,14 @@ if (EMSCRIPTEN)
         -sUSE_VORBIS=1
         -sUSE_LIBJPEG=1
         -sALLOW_MEMORY_GROWTH=1
+        # Growth is capped at 2Gb unless told otherwise; wasm32 can address 4Gb
+        # and a loaded level needs the headroom (native peak ~1.4Gb + the
+        # mmap'ed archive regions, which live in the heap here).
+        -sMAXIMUM_MEMORY=4GB
+        # With an explicit maximum the linker no longer sizes the initial
+        # memory for us; static data + the 16Mb stack need more than the 16Mb
+        # default.
+        -sINITIAL_MEMORY=64MB
         -sMAX_WEBGL_VERSION=2
         # The engine is alloca/string<N>-heavy (string4096 buffers on the stack,
         # xr_alloca in Log/); native builds run on 8Mb thread stacks. The

@@ -61,9 +61,23 @@
   // long runs can be checked against the 2.5 GB budget.
   var memEvery = +params.get('mem') || 0;
   if (memEvery > 0) {
+    // The engine frame runs inside rAF, so the rAF rate is the game FPS.
+    var frames = 0, worst = 0, last = performance.now();
+    (function tick(now) {
+      frames++;
+      worst = Math.max(worst, now - last);
+      last = now;
+      requestAnimationFrame(tick);
+    })(last);
     setInterval(function () {
-      var mb = Module.HEAPU8 ? (Module.HEAPU8.buffer.byteLength >> 20) : 0;
-      console.log('MEM: heap=' + mb + 'MB');
+      console.log('FPS: avg=' + (frames / memEvery).toFixed(1) + ' worst_frame=' + Math.round(worst) + 'ms');
+      frames = 0; worst = 0;
+      // HEAPU8 is internal to the emscripten glue; XRFS (pre-js, same
+      // scope) exposes a snapshot instead.
+      if (!Module.XRFS) return;
+      var m = Module.XRFS.memStats(), MB = function (b) { return Math.round(b / 1048576); }; // heap can pass 2Gb: no int32 shifts
+      console.log('MEM: heap=' + MB(m.heap) + 'MB xrfs_pack=' + MB(m.pack) +
+        'MB xrfs_small=' + MB(m.small) + 'MB xrfs_blocks=' + MB(m.blocks) + 'MB');
     }, memEvery * 1000);
   }
 
