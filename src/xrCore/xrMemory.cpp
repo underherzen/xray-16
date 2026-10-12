@@ -1,4 +1,8 @@
 #include "stdafx.h"
+#ifdef XR_PLATFORM_WEB
+#include <malloc.h>
+#include <emscripten/emscripten.h>
+#endif
 
 #include <SDL.h>
 
@@ -149,6 +153,13 @@ XRCORE_API void log_vminfo()
     Msg("* [ %s ]: free[%zu K], reserved[%zu K], committed[%zu K]", SDL_GetPlatform(), w_free / 1024, w_reserved / 1024, w_committed / 1024);
 }
 
+#ifdef XR_PLATFORM_WEB
+// Allocator stats for the browser dev probes (tools/web, ?mem=): the heap
+// size alone only shows the high-water mark.
+extern "C" EMSCRIPTEN_KEEPALIVE double xr_web_malloc_in_use() { return mallinfo().uordblks; }
+extern "C" EMSCRIPTEN_KEEPALIVE double xr_web_malloc_arena() { return mallinfo().arena; }
+#endif
+
 size_t xrMemory::mem_usage()
 {
 #if defined(XR_PLATFORM_WINDOWS)
@@ -167,6 +178,8 @@ size_t xrMemory::mem_usage()
     system_info info;
     get_system_info(&info);
     return B_PAGE_SIZE * (uint64)info.used_pages;
+#elif defined(XR_PLATFORM_WEB)
+    return mallinfo().uordblks; // bytes in use; the wasm heap itself never shrinks
 #else
     return 0;
 #endif
