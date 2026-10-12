@@ -144,10 +144,16 @@ void SetCurrentProcessPriorityClass(priority_class cls)
 #elif defined(XR_PLATFORM_POSIX)
 void SetCurrentThreadName(cpcstr name)
 {
+#if defined(XR_PLATFORM_WEB) && !defined(__EMSCRIPTEN_PTHREADS__)
+    // Single-threaded wasm: the sysroot declares pthread_setname_np but the
+    // nothreads libc does not provide it, and there is nothing to name anyway.
+    (void)name;
+#else
     if (auto error = pthread_setname_np(pthread_self(), name) != 0)
     {
         Msg("SetCurrentThreadName: failed to set thread name to '%s'. Errno: '%d'", name, error);
     }
+#endif
 #ifdef TRACY_ENABLE
     tracy::SetThreadName(name);
 #endif

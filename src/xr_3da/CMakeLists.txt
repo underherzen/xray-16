@@ -33,6 +33,20 @@ target_link_libraries(xr_3da
     xrGame
 )
 
+if (EMSCRIPTEN)
+    # The media ports were enabled at compile time via add_compile_options;
+    # the link step needs them too to pull in the port libraries (SDL2 with
+    # its canvas/window glue, ogg/vorbis, libjpeg). OpenAL comes from the
+    # emscripten sysroot (-lal, WebAudio based).
+    target_link_options(xr_3da PRIVATE
+        -sUSE_SDL=2
+        -sUSE_VORBIS=1
+        -sUSE_LIBJPEG=1
+        -sALLOW_MEMORY_GROWTH=1
+        -sMAX_WEBGL_VERSION=2
+    )
+endif()
+
 set_target_properties(xr_3da PROPERTIES
     PREFIX ""
 )
