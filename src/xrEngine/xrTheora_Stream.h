@@ -27,6 +27,9 @@ class ENGINE_API CTheoraStream
 protected:
     int ReadData();
     bool ParseHeaders();
+#ifdef XR_PLATFORM_WEB
+    ogg_int64_t LastGranulePos();
+#endif
 
 public:
     CTheoraStream();

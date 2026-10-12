@@ -49,6 +49,37 @@ int CTheoraStream::ReadData()
     return bytes;
 }
 
+#ifdef XR_PLATFORM_WEB
+// granulepos of the last page of our stream, from the file's tail; -1 if not found
+ogg_int64_t CTheoraStream::LastGranulePos()
+{
+    const size_t length = source->length();
+    const size_t tail = std::min<size_t>(length, 64 * 1024);
+    xr_vector<u8> buf(tail);
+    const size_t position = source->tell();
+    source->seek(length - tail);
+    source->r(buf.data(), tail);
+    source->seek(position); // the key-rate scan continues from here
+
+    const u32 serial = u32(o_stream_state.serialno);
+    for (size_t i = tail >= 27 ? tail - 27 : 0; i + 27 <= tail; --i)
+    {
+        if (buf[i] == 'O' && buf[i + 1] == 'g' && buf[i + 2] == 'g' && buf[i + 3] == 'S')
+        {
+            ogg_int64_t granule;
+            u32 page_serial;
+            std::memcpy(&granule, &buf[i + 6], sizeof(granule));
+            std::memcpy(&page_serial, &buf[i + 14], sizeof(page_serial));
+            if (page_serial == serial && granule >= 0)
+                return granule;
+        }
+        if (i == 0)
+            break;
+    }
+    return -1;
+}
+#endif
+
 bool CTheoraStream::ParseHeaders()
 {
     ogg_packet o_packet;
@@ -147,6 +178,37 @@ bool CTheoraStream::ParseHeaders()
     // calculate frame count & total length in ms & key rate
     ogg_int64_t frame_count = 0;
     ogg_int64_t p_key = 0, c_key = 0;
+#ifdef XR_PLATFORM_WEB
+    // The scan below reads the whole file (a 160Mb intro ogm: ~0.8s of I/O in
+    // a browser, where there is no page cache behind the stream reader). The
+    // frame count is in the last page's granulepos; the key rate only needs
+    // the first two keyframes.
+    const ogg_int64_t last_granule = LastGranulePos();
+    if (last_granule >= 0)
+    {
+        while (0 == key_rate)
+        {
+            while (0 == key_rate && ogg_stream_packetout(&o_stream_state, &o_packet) > 0)
+            {
+                if (theora_packet_iskeyframe(&o_packet))
+                {
+                    p_key = c_key;
+                    c_key = frame_count;
+                    key_rate = (u32)(c_key - p_key);
+                }
+                frame_count++;
+            }
+            if (0 != key_rate || source->eof() || 0 == ReadData())
+                break;
+            while (ogg_sync_pageout(&o_sync_state, &o_page) > 0)
+                ogg_stream_pagein(&o_stream_state, &o_page);
+        }
+        frame_count = theora_granule_frame(&t_state, last_granule) + 1;
+        tm_total = iFloor(frame_count / fpms);
+        Reset();
+        return true;
+    }
+#endif
     while (true)
     {
         while (ogg_stream_packetout(&o_stream_state, &o_packet) > 0)
