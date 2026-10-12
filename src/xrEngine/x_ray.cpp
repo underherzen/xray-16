@@ -37,6 +37,7 @@
 
 #if defined(XR_PLATFORM_WEB)
 #include <emscripten.h>
+#include "xrCore/WebProfiler.h"
 #endif
 
 // global variables
@@ -448,6 +449,9 @@ void CApplication::RunApplicationFrame(CApplication* app)
 
 #if defined(XR_PLATFORM_WEB)
 // The browser owns the frame: the engine is driven by requestAnimationFrame.
+static double s_webFrameMsSum = 0.0, s_webFrameMsMax = 0.0;
+static u32 s_webFrameCount = 0;
+
 void CApplication::WebApplicationFrame()
 {
     if (SDL_QuitRequested()) // SDL_PumpEvents is here
@@ -456,7 +460,48 @@ void CApplication::WebApplicationFrame()
         Device.Shutdown();
         return;
     }
+    const double frameStart = emscripten_get_now();
     RunApplicationFrame(s_application);
+    const double frameMs = emscripten_get_now() - frameStart;
+    s_webFrameMsSum += frameMs;
+    s_webFrameMsMax = std::max(s_webFrameMsMax, frameMs);
+    ++s_webFrameCount;
+}
+
+// Dev hook for the browser probes (?mem=): the XR_WEB_PROF slots as
+// "name=ms/calls ..." since the previous call, then reset.
+extern "C" EMSCRIPTEN_KEEPALIVE const char* xr_web_prof_report()
+{
+    using namespace xray::web_prof;
+    static string1024 report;
+    report[0] = 0;
+    for (int i = 0; i < SlotCount; ++i)
+    {
+        if (!calls[i])
+            continue;
+        string128 item;
+        xr_sprintf(item, "%s=%.1f/%u ", names[i], ms[i], calls[i]);
+        xr_strcat(report, item);
+        ms[i] = 0;
+        calls[i] = 0;
+    }
+    return report;
+}
+
+// Dev hook for the browser probes (?mem=): CPU time of the engine frames
+// since the previous call -- set against the rAF interval it tells a
+// CPU-bound frame from a GPU/compositor-bound one. which: 0 = average ms,
+// 1 = max ms, 2 = frame count; reading the count resets the window.
+extern "C" EMSCRIPTEN_KEEPALIVE double xr_web_frame_stats(int which)
+{
+    if (which == 0)
+        return s_webFrameCount ? s_webFrameMsSum / s_webFrameCount : 0.0;
+    if (which == 1)
+        return s_webFrameMsMax;
+    const double count = s_webFrameCount;
+    s_webFrameMsSum = s_webFrameMsMax = 0.0;
+    s_webFrameCount = 0;
+    return count;
 }
 
 // Dev hook for the browser probes (tools/web, ?cmd=): run a console command

@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "xrCore/WebProfiler.h"
 
 #include "SoundRender_TargetA.h"
 #include "SoundRender_Emitter.h"
@@ -91,6 +92,7 @@ void CSoundRender_TargetA::rewind()
 
 void CSoundRender_TargetA::update()
 {
+    XR_WEB_PROF(SoundTargetUpdate);
     inherited::update();
 
     ALint processed, state;

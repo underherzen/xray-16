@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "xrCore/WebProfiler.h"
 
 #include "Common/LevelStructure.hpp"
 #include "xrCDB/Intersect.hpp"
@@ -289,6 +290,7 @@ float CSoundRender_Scene::get_occlusion_to(const Fvector& hear_pt, const Fvector
 float CSoundRender_Scene::get_occlusion(const Fvector& P, float R, Fvector* occ)
 {
     ZoneScoped;
+    XR_WEB_PROF(SoundOcclusion);
 
     float occ_value = 1.f;
 

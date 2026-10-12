@@ -93,8 +93,15 @@
       tickAt = now;
     }, 100);
     setInterval(function () {
+      var cpu = '';
+      try { // engine CPU per frame vs the rAF interval (throws before the runtime is up)
+        var fs = function (w) { return Module.ccall('xr_web_frame_stats', 'number', ['number'], [w]); };
+        cpu = ' engine_cpu_avg=' + fs(0).toFixed(1) + 'ms max=' + Math.round(fs(1)) + 'ms n=' + fs(2);
+        var prof = Module.ccall('xr_web_prof_report', 'string', [], []);
+        if (prof) console.log('PROF: ' + prof);
+      } catch (e) {}
       console.log('FPS: avg=' + (frames / memEvery).toFixed(1) + ' worst_frame=' + Math.round(worst) +
-        'ms main_blocked=' + Math.round(block) + 'ms');
+        'ms main_blocked=' + Math.round(block) + 'ms' + cpu);
       frames = 0; worst = 0; block = 0;
       // HEAPU8 is internal to the emscripten glue; XRFS (pre-js, same
       // scope) exposes a snapshot instead.
