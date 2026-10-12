@@ -12,9 +12,11 @@ add_subdirectory(xrLuaFix)
 add_subdirectory(OPCODE)
 add_subdirectory(ode)
 
-if (EMSCRIPTEN) # no system lzo2 and no Emscripten port: build the vendored one
+if (EMSCRIPTEN) # no system lzo2/theora and no Emscripten ports: build the vendored ones
     add_subdirectory(lzo)
     add_library(LZO::LZO ALIAS LZO)
+    add_subdirectory(theora)
+    add_library(Theora::Theora ALIAS Theora)
 endif()
 
 # Silence all warnings for external libraries
