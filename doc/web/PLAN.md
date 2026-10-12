@@ -371,8 +371,42 @@ network-free проверка, стабильность на длинных се
     compr==real → файл хранится как есть, иначе rtc_decompress); `glitest` — парсинг
     DDS через gli. Компиляция gli: `-IExternals/gli -IExternals/gli/external` (glm);
     тильда после `-I` в bash НЕ раскрывается. Текстуры лежат в resources.db3/db4
-  - **ДАЛЬШЕ**: 1) dummy-outs в rgl_essl_web.h → пересборка wasm → повторный прогон
-    (сцена должна осветлиться, 2D-текстурные сообщения исчезнуть); 2) 3D DXT →
-    convert в glTexture.cpp; 3) mem-лог через wasmMemory.buffer.byteLength; 4) M5-3
-    клавиатура + lock; 5) 5-мин ходьба `?keys=down@T:w;up@T2:w`; 6) регресс натив +
-    коммиты
+  - **M5-2 (2026-10-12, ночь) — сцена освещена, ходьба работает, 0 GL-ошибок**:
+    - **MRT**: вместо dummy-выходов (пишут неопределённые значения поверх
+      «нетронутых» целей G-buffer) — маскирование draw buffers под выходы программы:
+      перед каждой отрисовкой на вебе `glDrawBuffers` = подключённые цели ∩
+      SV_Target-выходы программы (`glGetFragDataLocation`, кэш по программе),
+      после — восстановление (`CBackend::MaskDrawBuffersToOutputs`, e5c0a6d8e).
+      Ровно поведение десктопа/D3D. Тысячи «missing fragment shader outputs» → 0
+    - **3D DXT** (water_sbumpvolume): декодирование в RGBA8 через `gli::convert`
+      под XR_PLATFORM_WEB (c6192584b). Ложные «0x502 Invalid 2D texture» ушли вместе
+      с MRT-ошибками (стейл glGetError)
+    - **waterd**: `in int2 v_vert_uv` при подаче SHORT2 через glVertexAttribPointer —
+      WebGL2 дропает дроу («Vertex shader input type does not match»). Фикс в шейдере:
+      float-вход + `int2()` (как в v_water.h; 1b5bcf422). Правка и в движковом
+      `res/gamedata`, и в `~/dev/cop/gamedata` (мерж-копия) → files.json+pack.bin
+      перегенерированы парой
+    - **память**: `-sMAXIMUM_MEMORY=4GB` — по умолчанию рост останавливался на
+      **2 ГБ**, а загруженный Затон занимает **2109 МБ** кучи (старая сборка упала бы
+      по OOM); `-sINITIAL_MEMORY=64MB` (явный максимум отключает авто-размер)
+    - **XRFS**: кэш мелких файлов был без вытеснения — **1.6 ГБ** JS-памяти на
+      загрузке уровня; теперь LRU 256 МБ (`smallCacheBytes`). Итог по вкладке:
+      куча 2.1 ГБ + pack 156 МБ + small 256 МБ + blocks 96 МБ ≈ 2.6 ГБ
+    - **зонды**: `?mem=N` чинен (XRFS.memStats) + FPS по rAF (avg, худший кадр);
+      `CHROME_EXTRA` в probe_chrome.sh (реальный GPU: `--use-angle=d3d11
+      --ignore-gpu-blocklist`)
+    - **замер на реальном GPU** (RTX 3070 Ti, headless Chrome/ANGLE D3D11, Lua 5.1
+      интерпретатор, стартовая зона Затона): **~135–140 FPS**, единичные хитчи до
+      320 мс (стриминг). Риск R1 (медленный Lua) на старте не проявился — перепроверить
+      в бою/у скоплений NPC
+    - **сценарий автопрогона** до игры: `?newgame=1&mem=10&keys=down@210:space;
+      up@210.3:space;down@222:space;up@222.3:space;down@232:escape;up@232.3:escape;
+      down@260:w;up@320:w` — 1-й пробел = «нажмите клавишу», дальше пропуск интро.
+      Скриншоты прогона: `~/dev/cop/_m5/run4/`
+    - субмодули luabind/xrLuaFix/GameSpy форкнуты (underherzen/*), ветки
+      `wasm-port` запушены, `.gitmodules` указывает на форки (2071fad97)
+  - **ДАЛЬШЕ (M5-3)**: 1) 5-мин ходьба без краха/OOM (критерий фазы D);
+    2) pointer lock в index.html (ловить `pointerlockerror`, re-request по клику) —
+    проверять только в обычном (не headless) Chrome; 3) сейвы: IDBFS для
+    `$app_data_root$` (сейчас запись в память XRFS — теряется на перезагрузке);
+    4) хитчи 300+ мс — профиль: sync-XHR блоков на главном потоке?
