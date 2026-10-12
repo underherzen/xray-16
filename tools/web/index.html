@@ -29,7 +29,10 @@
     preRun: [],
     postRun: [],
     canvas: document.getElementById('canvas'),
-    arguments: ['-nosplash'],
+    // -no_cdb_cache: the engine would write each level's collision trees
+    // (~140Mb for Zaton) to app data, which persists to IndexedDB and gets
+    // loaded back into memory on every start; rebuilding costs ~3s instead.
+    arguments: ['-nosplash', '-no_cdb_cache'],
     print: function (t) { console.log(t); },
     printErr: function (t) { console.error(t); },
     setStatus: function (t) { statusElement.textContent = t; },

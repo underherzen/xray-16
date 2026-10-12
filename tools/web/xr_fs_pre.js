@@ -41,7 +41,8 @@ var XRFS_CONFIG_DEFAULTS = {
     // Overlay paths under this prefix (lowercased, relative to the mount)
     // survive page reloads in IndexedDB: saves, user.ltx, screenshots.
     persistPrefix: '_appdata_/',
-    persistSkip: ['_appdata_/logs/'],
+    // logs; caches (should a build still write one) are regenerated, never worth keeping
+    persistSkip: ['_appdata_/logs/', '_appdata_/cdb_cache/', '_appdata_/shaders_cache_oxr/'],
     persistDb: 'xrfs-appdata',
 };
 
@@ -761,16 +762,22 @@ var XRFS = {
         addRunDependency('xrfs-persist');
         XRFS.persistOpen(function (db) {
             if (!db) { removeRunDependency('xrfs-persist'); return; }
-            var store = db.transaction('files', 'readonly').objectStore('files');
-            var count = 0;
+            var store = db.transaction('files', 'readwrite').objectStore('files');
+            var count = 0, dropped = 0;
             store.openCursor().onsuccess = function (e) {
                 var cur = e.target.result;
                 if (cur) {
-                    XRFS.overlay.set(cur.key, cur.value);
-                    count++;
+                    if (XRFS.persistWanted(cur.key)) {
+                        XRFS.overlay.set(cur.key, cur.value);
+                        count++;
+                    } else {
+                        cur.delete(); // stored by an older build (e.g. 140Mb cdb caches)
+                        dropped++;
+                    }
                     cur.continue();
                     return;
                 }
+                if (dropped) console.log('XRFS: dropped ' + dropped + ' stale app data entries from IndexedDB');
                 db.close();
                 if (count) console.log('XRFS: restored ' + count + ' app data entries from IndexedDB');
                 removeRunDependency('xrfs-persist');
