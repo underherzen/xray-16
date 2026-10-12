@@ -26,7 +26,10 @@ layout(location = NORMAL)		in float4	v_vert_N		; // NORMAL;		// (nx,ny,nz,hemi o
 layout(location = TANGENT)		in float4	v_vert_T		; // TANGENT;		// tangent
 layout(location = BINORMAL)		in float4	v_vert_B		; // BINORMAL;		// binormal
 layout(location = COLOR0)		in float4	v_vert_color		; // COLOR0;		// (r,g,b,dir-occlusion)
-layout(location = TEXCOORD0)		in int2		v_vert_uv		; // TEXCOORD0;		// (u0,v0)
+// float input: the stream is SHORT2 fed through glVertexAttribPointer (converted
+// to float); an int input needs glVertexAttribIPointer, and WebGL2 drops the draw
+// on such a type mismatch
+layout(location = TEXCOORD0)		in float2	v_vert_uv		; // TEXCOORD0;		// (u0,v0)
 
 layout(location = TEXCOORD0) 		out float2	v2p_vert_tbase		; // TEXCOORD0;
 layout(location = TEXCOORD1) 		out float2	v2p_vert_tdist0		; // TEXCOORD1;
@@ -45,7 +48,7 @@ void main()
 	I.T		= v_vert_T;
 	I.B		= v_vert_B;
 	I.color		= v_vert_color;
-	I.uv		= v_vert_uv;
+	I.uv		= int2(v_vert_uv);
 
 	v2p O 		= _main (I);
 
