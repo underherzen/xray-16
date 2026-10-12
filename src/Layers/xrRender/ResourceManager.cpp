@@ -371,6 +371,38 @@ void CResourceManager::DeferredUpload()
 #endif
 }
 
+#ifdef XR_PLATFORM_WEB
+bool CResourceManager::DeferredUploadStep(u32 budget_ms)
+{
+    if (!Device.b_is_Ready)
+        return true;
+
+    ZoneScoped;
+
+    if (m_deferred_upload_queue.empty())
+    {
+        // Snapshot: Load() of a texture without a surface (OGM, $user$,
+        // missing file) would redo its work if we rescanned m_textures.
+        m_deferred_upload_queue.reserve(m_textures.size());
+        for (auto& texture : m_textures)
+            m_deferred_upload_queue.push_back(texture.second);
+        m_deferred_upload_pos = 0;
+    }
+
+    CTimer timer;
+    timer.Start();
+    while (m_deferred_upload_pos < m_deferred_upload_queue.size())
+    {
+        m_deferred_upload_queue[m_deferred_upload_pos++]->Load();
+        if (timer.GetElapsed_ms() >= budget_ms)
+            return false;
+    }
+    m_deferred_upload_queue.clear();
+    m_deferred_upload_pos = 0;
+    return true;
+}
+#endif
+
 void CResourceManager::DeferredUnload()
 {
     if (!Device.b_is_Ready)

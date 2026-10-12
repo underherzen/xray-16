@@ -229,6 +229,13 @@ void D3DXRenderBase::DeferredLoad(bool E)
 {
     Resources->DeferredLoad(E);
 }
+#ifdef XR_PLATFORM_WEB
+bool D3DXRenderBase::ResourcesDeferredUploadStep(u32 budget_ms)
+{
+    return Resources->DeferredUploadStep(budget_ms);
+}
+#endif
+
 void D3DXRenderBase::ResourcesDeferredUpload()
 {
     Resources->DeferredUpload();

@@ -399,8 +399,10 @@ void IGame_Persistent::Prefetch()
     Log("Loading models...");
     GEnv.Render->models_Prefetch();
 
+#ifndef XR_PLATFORM_WEB // uploaded in slices by the level's texture stage instead
     Log("Loading textures...");
     GEnv.Render->ResourcesDeferredUpload();
+#endif
 
     const auto memoryAfter = Memory.mem_usage() - memoryBefore;
 

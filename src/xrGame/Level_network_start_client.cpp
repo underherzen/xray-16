@@ -215,9 +215,25 @@ bool CLevel::net_start_client5()
         // Textures
         if (!GEnv.isDedicatedServer)
         {
+#ifdef XR_PLATFORM_WEB
+            // One call loads every texture of the level (~20s in a browser,
+            // tab frozen). Feed it in ~100ms slices; this stage is re-run
+            // next frame while it returns false.
+            static bool texturesStarted = false;
+            if (!texturesStarted)
+            {
+                g_pGamePersistent->LoadTitle("st_loading_textures");
+                GEnv.Render->DeferredLoad(FALSE);
+                texturesStarted = true;
+            }
+            if (!GEnv.Render->ResourcesDeferredUploadStep(100))
+                return false;
+            texturesStarted = false;
+#else
             g_pGamePersistent->LoadTitle("st_loading_textures");
             GEnv.Render->DeferredLoad(FALSE);
             GEnv.Render->ResourcesDeferredUpload();
+#endif
             LL_CheckTextures();
         }
         sended_request_connection_data = FALSE;

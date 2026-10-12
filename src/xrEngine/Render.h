@@ -373,6 +373,14 @@ public:
     //	Resources control
     virtual void DeferredLoad(bool E) = 0;
     virtual void ResourcesDeferredUpload() = 0;
+    // Incremental variant for single-threaded hosts (the browser): load for
+    // about budget_ms, return true once everything is uploaded. The loading
+    // stage that calls it is simply re-run next frame while it returns false.
+    virtual bool ResourcesDeferredUploadStep(u32 /*budget_ms*/)
+    {
+        ResourcesDeferredUpload();
+        return true;
+    }
     virtual void ResourcesDeferredUnload() = 0;
     virtual void ResourcesGetMemoryUsage(u32& m_base, u32& c_base, u32& m_lmaps, u32& c_lmaps) = 0;
     virtual void ResourcesDestroyNecessaryTextures() = 0;

@@ -239,6 +239,17 @@ public:
     void DeleteGeom(const SGeometry* VS);
     void DeferredLoad(BOOL E) { bDeferredLoad = E; }
     void DeferredUpload();
+#ifdef XR_PLATFORM_WEB
+    // DeferredUpload spread over frames: a level's ~1900 textures take ~20s
+    // to stream in, which as one call freezes the browser tab.
+    bool DeferredUploadStep(u32 budget_ms);
+
+private:
+    xr_vector<CTexture*> m_deferred_upload_queue;
+    size_t m_deferred_upload_pos{};
+
+public:
+#endif
     void DeferredUnload();
     void Evict();
     void StoreNecessaryTextures();
