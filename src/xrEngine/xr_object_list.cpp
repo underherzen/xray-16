@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "xrCore/WebProfiler.h"
 #include "IGame_Level.h"
 #include "IGame_Persistent.h"
 
@@ -213,6 +214,7 @@ void CObjectList::clear_crow_vec(Objects& o)
 
 void CObjectList::Update(bool bForce)
 {
+    XR_WEB_PROF(ObjectListUpdate);
     ZoneScoped;
 
     if (statsFrame != Device.dwFrame)
@@ -511,6 +513,7 @@ IGameObject* CObjectList::Create(pcstr name)
 
 void CObjectList::Destroy(IGameObject* game_obj)
 {
+    XR_WEB_PROF(ObjectDestroy);
     if (nullptr == game_obj)
         return;
     net_Unregister(game_obj);

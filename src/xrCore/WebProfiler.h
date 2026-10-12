@@ -36,6 +36,9 @@ enum Slot
     ModelCreate,
     PhysicsShell,
     StalkerSpawn,
+    ObjectDestroy,
+    ObjectListUpdate,
+    GameEvents,
     SlotCount
 };
 
@@ -44,6 +47,7 @@ inline const char* const names[SlotCount] = {
     "snd_load", "snd_decode", "tex_load", "model_load", "shader_compile", "program_link", "script_update",
     "scheduler", "lua_gc", "render", "alife_switch", "object_spawn", "snd_create",
     "script_binder_spawn", "model_create", "physics_shell", "stalker_spawn",
+    "object_destroy", "object_list_update", "game_events",
 };
 inline double ms[SlotCount]{};
 inline unsigned calls[SlotCount]{};

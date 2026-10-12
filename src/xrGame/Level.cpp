@@ -308,6 +308,7 @@ void CLevel::cl_Process_Event(u16 dest, u16 type, NET_Packet& P)
 
 void CLevel::ProcessGameEvents()
 {
+    XR_WEB_PROF(GameEvents);
     ZoneScoped;
 
     // Game events
