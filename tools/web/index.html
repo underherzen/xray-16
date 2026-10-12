@@ -103,6 +103,8 @@
       console.log('MEM: heap=' + MB(m.heap) + 'MB malloc_in_use=' + MB(m.mallocInUse) +
         'MB malloc_arena=' + MB(m.mallocArena) + 'MB xrfs_pack=' + MB(m.pack) +
         'MB xrfs_small=' + MB(m.small) + 'MB xrfs_blocks=' + MB(m.blocks) + 'MB audio=' + m.audio);
+      console.log('IO: requests=' + m.io.requests + ' MB=' + MB(m.io.bytes) +
+        ' xhr_s=' + (m.io.xhrMs / 1000).toFixed(1) + ' convert_s=' + (m.io.convertMs / 1000).toFixed(1));
     }, memEvery * 1000);
   }
 
@@ -129,6 +131,16 @@
         Module.ccall('xr_web_console_execute', null, ['string'], [m[2]]);
       }, +m[1] * 1000);
     });
+  }
+
+  // Dev probe: ?iotop=SEC -- the files XRFS fetched most bytes of, by then.
+  var ioTopAt = +params.get('iotop') || 0;
+  if (ioTopAt > 0) {
+    setTimeout(function () {
+      Module.XRFS.ioTop(25).forEach(function (r) {
+        console.log('IOTOP ' + (r[2] / 1048576).toFixed(1) + 'MB x' + r[1] + ' ' + decodeURIComponent(r[0]));
+      });
+    }, ioTopAt * 1000);
   }
 
   // Dev probe: ?mouse=move@30:640,360;click@35:640,360 ...

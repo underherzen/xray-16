@@ -68,7 +68,98 @@ var XRFS = {
 
     // ---- data access ------------------------------------------------------
 
+    // I/O accounting for the probes: where load time goes.
+    io: { requests: 0, bytes: 0, xhrMs: 0, convertMs: 0 },
+
+    // ---- fast transport: worker fetch -> SharedArrayBuffer ----------------
+    // Sync XHR on the main thread can only return text: Chrome decodes every
+    // response into a UTF-16 string that we then walk byte by byte (~85Mb/s,
+    // ~55s of a Zaton load). With cross-origin isolation a worker can fetch
+    // binary data into shared memory while the main thread spins on a flag
+    // (Atomics.wait is not allowed there, a spin is). The worker also reads
+    // the next block of a file ahead, since archives are read mostly in order.
+    // ctrl: [0] state 0=pending 1=done 2=error, [1] length, [2] HTTP status.
+    sab: null,
+
+    sabWorkerSource: function () {
+        return 'var ctrl, data, ahead = new Map();\n' +
+        'function get(url, start, end) {\n' +
+        '  var key = url + "|" + start + "|" + end;\n' +
+        '  var p = ahead.get(key);\n' +
+        '  if (p) { ahead.delete(key); return p; }\n' +
+        '  var h = end === undefined ? {} : { Range: "bytes=" + start + "-" + end };\n' +
+        '  return fetch(url, { headers: h, cache: "no-store" }).then(function (r) {\n' +
+        '    if (!r.ok) return { status: r.status };\n' +
+        '    return r.arrayBuffer().then(function (b) { return { status: r.status, buf: b }; });\n' +
+        '  });\n' +
+        '}\n' +
+        'onmessage = function (e) {\n' +
+        '  var m = e.data;\n' +
+        '  if (m.init) { ctrl = new Int32Array(m.ctrl); data = new Uint8Array(m.data); postMessage({ ready: true }); return; }\n' +
+        '  get(m.url, m.start, m.end).then(function (res) {\n' +
+        '    if (!res.buf || res.buf.byteLength > data.length) {\n' +
+        '      Atomics.store(ctrl, 2, res.status); Atomics.store(ctrl, 1, res.buf ? res.buf.byteLength : 0);\n' +
+        '      Atomics.store(ctrl, 0, 2); return;\n' +
+        '    }\n' +
+        '    data.set(new Uint8Array(res.buf));\n' +
+        '    Atomics.store(ctrl, 1, res.buf.byteLength); Atomics.store(ctrl, 2, res.status);\n' +
+        '    Atomics.store(ctrl, 0, 1);\n' +
+        '    if (ahead.size >= 4) ahead.delete(ahead.keys().next().value);\n' +
+        '    if (m.nextStart !== undefined)\n' +
+        '      ahead.set(m.url + "|" + m.nextStart + "|" + m.nextEnd, get(m.url, m.nextStart, m.nextEnd));\n' +
+        '  }, function () { Atomics.store(ctrl, 2, 0); Atomics.store(ctrl, 0, 2); });\n' +
+        '};\n';
+    },
+
+    sabInit: function () {
+        if (XRFS.isNode() || !globalThis.crossOriginIsolated || typeof SharedArrayBuffer === 'undefined')
+            return;
+        try {
+            var ctrl = new SharedArrayBuffer(16);
+            var data = new SharedArrayBuffer(16 * 1024 * 1024);
+            var url = URL.createObjectURL(new Blob([XRFS.sabWorkerSource()], { type: 'text/javascript' }));
+            var w = new Worker(url);
+            // A new worker only starts once the main thread returns to its
+            // event loop: enable the transport (and let main() run) after it
+            // reports ready, or the first spin would wait forever.
+            addRunDependency('xrfs-sab');
+            w.onmessage = function (e) {
+                if (!e.data || !e.data.ready) return;
+                XRFS.sab = { worker: w, ctrl: new Int32Array(ctrl), data: new Uint8Array(data) };
+                console.log('XRFS: fast transport on (worker fetch + SharedArrayBuffer)');
+                removeRunDependency('xrfs-sab');
+            };
+            w.postMessage({ init: true, ctrl: ctrl, data: data });
+        } catch (e) {
+            console.log('XRFS: fast transport unavailable (' + e.message + '), using sync XHR');
+        }
+    },
+
+    // Returns null when the request does not fit the shared buffer (caller
+    // falls back to XHR).
+    sabRange: function (url, start, end, nextStart, nextEnd) {
+        var s = XRFS.sab;
+        if (end !== undefined && end - start + 1 > s.data.length) return null;
+        var t0 = performance.now();
+        Atomics.store(s.ctrl, 0, 0);
+        s.worker.postMessage({ url: new URL(url, location.href).href, start: start, end: end,
+            nextStart: nextStart, nextEnd: nextEnd });
+        while (Atomics.load(s.ctrl, 0) === 0) { /* spin: Atomics.wait is banned on the main thread */ }
+        var state = Atomics.load(s.ctrl, 0), len = Atomics.load(s.ctrl, 1), status = Atomics.load(s.ctrl, 2);
+        if (state === 2) {
+            if (len > s.data.length) return null; // whole-file response too big
+            throw new Error('XRFS: GET ' + url + ' -> ' + status);
+        }
+        var u8 = s.data.slice(0, len); // copy out of shared memory
+        var t1 = performance.now();
+        XRFS.io.requests++;
+        XRFS.io.bytes += len;
+        XRFS.io.xhrMs += t1 - t0;
+        return u8;
+    },
+
     xhrRange: function (url, start, end) {
+        var t0 = performance.now();
         var xhr = new XMLHttpRequest();
         xhr.open('GET', url, false);
         if (end !== undefined) xhr.setRequestHeader('Range', 'bytes=' + start + '-' + end);
@@ -79,8 +170,18 @@ var XRFS = {
         if (xhr.status !== 200 && xhr.status !== 206 && xhr.status !== 0)
             throw new Error('XRFS: GET ' + url + ' -> ' + xhr.status);
         var text = xhr.responseText;
+        var t1 = performance.now();
         var u8 = new Uint8Array(text.length);
         for (var i = 0; i < text.length; i++) u8[i] = text.charCodeAt(i) & 0xff;
+        var t2 = performance.now();
+        XRFS.io.requests++;
+        XRFS.io.bytes += u8.length;
+        XRFS.io.xhrMs += t1 - t0;
+        XRFS.io.convertMs += t2 - t1;
+        var per = XRFS.io.perUrl || (XRFS.io.perUrl = new Map());
+        var e = per.get(url) || { n: 0, bytes: 0 };
+        e.n++; e.bytes += u8.length;
+        per.set(url, e);
         return u8;
     },
 
@@ -104,7 +205,15 @@ var XRFS = {
                 fs.closeSync(fd);
             }
         }
-        var data = XRFS.xhrRange(XRFS.urlFor(path), start, end - 1);
+        var data = null;
+        if (XRFS.sab) {
+            // read-ahead hint: the next block of the same file
+            var bs = XRFS.cfg.blockSize, size = end - start === bs ? Infinity : 0;
+            var ns = end, ne = end + bs - 1;
+            data = XRFS.sabRange(XRFS.urlFor(path), start, end - 1,
+                size ? ns : undefined, size ? ne : undefined);
+        }
+        if (!data) data = XRFS.xhrRange(XRFS.urlFor(path), start, end - 1);
         if (data.length > end - start) data = data.subarray(0, end - start);
         return data;
     },
@@ -638,6 +747,14 @@ var XRFS = {
         return ctx.audioCtx.state + ' ' + playing + '/' + total;
     },
 
+    // Top-N URLs by bytes fetched (dev probe ?iotop=SEC).
+    ioTop: function (n) {
+        var rows = [];
+        (XRFS.io.perUrl || new Map()).forEach(function (e, url) { rows.push([url, e.n, e.bytes]); });
+        rows.sort(function (a, b) { return b[2] - a[2]; });
+        return rows.slice(0, n || 20);
+    },
+
     // Memory snapshot for dev probes (?mem= in index.html): the wasm heap
     // plus what XRFS holds on the JS side, both count against the tab.
     memStats: function () {
@@ -648,6 +765,7 @@ var XRFS = {
             mallocInUse: typeof _xr_web_malloc_in_use === 'function' ? _xr_web_malloc_in_use() : -1,
             mallocArena: typeof _xr_web_malloc_arena === 'function' ? _xr_web_malloc_arena() : -1,
             audio: XRFS.audioStats(),
+            io: XRFS.io,
             pack: XRFS.packBytes,
             small: XRFS.smallBytes,
             blocks: blockBytes,
@@ -664,6 +782,7 @@ var XRFS = {
         if (XRFS.isNode() && !cfg.baseDir)
             throw new Error('XRFS: node needs XRFS_CONFIG.baseDir');
         XRFS.cfg = cfg;
+        XRFS.sabInit();
         FS.mkdirTree(cfg.mountpoint);
         FS.mount(XRFS, {}, cfg.mountpoint);
         FS.chdir(cfg.mountpoint);

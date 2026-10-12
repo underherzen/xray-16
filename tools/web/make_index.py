@@ -35,6 +35,17 @@ INCLUDE = (
     "resources",
 )
 
+# Native-build leftovers inside the included trees. The cdb_cache trees are
+# 64-bit layouts the wasm32 engine rejects after reading them in full (the
+# ObjectSpace one alone is ~140Mb per level load); the GL shader binaries are
+# desktop-only; the logs belong to native runs. The web build regenerates
+# what it needs in its own (IndexedDB-persisted) app data.
+EXCLUDE = (
+    "_appdata_/cdb_cache",
+    "_appdata_/shaders_cache_oxr",
+    "_appdata_/logs",
+)
+
 # Files up to this size go into pack.bin; bigger ones are read through the
 # normal block path (they are rare at startup and would bloat the bundle).
 PACK_LIMIT = 512 * 1024
@@ -56,6 +67,9 @@ def main() -> None:
             continue
         for dirpath, dirnames, filenames in os.walk(top, followlinks=True):
             rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
+            if any(rel_dir == e or rel_dir.startswith(e + "/") for e in EXCLUDE):
+                dirnames[:] = []
+                continue
             if rel_dir != ".":
                 dirs.append(rel_dir)
             for fn in filenames:

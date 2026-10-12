@@ -19,6 +19,12 @@ class RangeHandler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Cache-Control", "no-cache")
+        # Cross-origin isolation: lets the page use SharedArrayBuffer, which
+        # XRFS needs for its fast worker transport (binary fetch instead of a
+        # main-thread sync XHR decoded through a UTF-16 string).
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
         super().end_headers()
 
     def send_head(self):
