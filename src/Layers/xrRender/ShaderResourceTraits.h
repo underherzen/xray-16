@@ -142,9 +142,11 @@ static GLuint GLDepthOnlyFragmentShader()
 // while native separate shader objects do not check. A few stage pairs read
 // a varying their vertex stage never writes ("FRAGMENT varying xr_v2p_9 does
 // not match any VERTEX varying": model_distort_1 | particle_alphaonly).
-// Returns a copy of the vertex shader that declares the missing outputs (an
-// unwritten output reads as undefined, as it does natively), or 0.
-static GLuint GLDeclareMissingVaryings(GLuint program, GLuint vs)
+// Adds the outputs the failed link reported to declarations and returns a
+// copy of the vertex shader declaring all of them (an unwritten output reads
+// as undefined, as it does natively), or 0 when the log names none that is
+// new. ANGLE reports one varying per link: the caller repeats.
+static GLuint GLDeclareMissingVaryings(GLuint program, GLuint vs, xr_string& declarations)
 {
     GLint length = 0;
     glGetProgramiv(program, GL_INFO_LOG_LENGTH, &length);
@@ -153,7 +155,7 @@ static GLuint GLDeclareMissingVaryings(GLuint program, GLuint vs)
     xr_string log(length, '\0');
     glGetProgramInfoLog(program, length, nullptr, log.data());
 
-    xr_string declarations;
+    bool added = false;
     constexpr pcstr marker = "FRAGMENT varying ";
     for (size_t at = log.find(marker); at != xr_string::npos; at = log.find(marker, at + 1))
     {
@@ -164,9 +166,13 @@ static GLuint GLDeclareMissingVaryings(GLuint program, GLuint vs)
         const xr_string name = log.substr(begin, end - begin);
         if (name.rfind("xr_v2p_", 0) != 0) // only the rewriter's vec4 interface varyings
             continue;
-        declarations += "out vec4 " + name + ";\n";
+        const xr_string declaration = "out vec4 " + name + ";\n";
+        if (declarations.find(declaration) != xr_string::npos)
+            continue;
+        declarations += declaration;
+        added = true;
     }
-    if (declarations.empty())
+    if (!added)
         return 0;
 
     GLint sourceLength = 0;
@@ -236,21 +242,22 @@ static GLuint GLLinkMonolithicProgram(pcstr name, GLuint ps, GLuint vs, GLuint g
     GLint status{};
     CHK_GL(glGetProgramiv(program, GL_LINK_STATUS, &status));
 #ifdef XR_PLATFORM_WEB
-    if (GLboolean(status) == GL_FALSE && !gs)
+    xr_string declared;
+    for (int attempt = 0; GLboolean(status) == GL_FALSE && !gs && attempt < 16; ++attempt)
     {
-        if (const GLuint patchedVs = GLDeclareMissingVaryings(program, vs))
-        {
-            glAttachShader(program, ps);
-            glAttachShader(program, patchedVs);
-            glLinkProgram(program);
-            glDetachShader(program, ps);
-            glDetachShader(program, patchedVs);
-            glDeleteShader(patchedVs);
-            glGetProgramiv(program, GL_LINK_STATUS, &status);
-            if (GLboolean(status) != GL_FALSE)
-                Msg("~ shader program linked after declaring missing vertex outputs: %s", name);
-        }
+        const GLuint patchedVs = GLDeclareMissingVaryings(program, vs, declared);
+        if (!patchedVs)
+            break;
+        glAttachShader(program, ps);
+        glAttachShader(program, patchedVs);
+        glLinkProgram(program);
+        glDetachShader(program, ps);
+        glDetachShader(program, patchedVs);
+        glDeleteShader(patchedVs);
+        glGetProgramiv(program, GL_LINK_STATUS, &status);
     }
+    if (GLboolean(status) != GL_FALSE && !declared.empty())
+        Msg("~ shader program linked after declaring missing vertex outputs: %s", name);
 #endif
     if (GLboolean(status) == GL_FALSE)
     {
