@@ -275,6 +275,8 @@ inline u32 GLQueryFragmentOutputs(GLuint program)
 
 inline u32 GetFragmentOutputsMask(GLuint program)
 {
+    if (!program) // a program that failed to link: its draws do nothing
+        return 0;
     auto& outputs = GLFragmentOutputs();
     if (const auto it = outputs.find(program); it != outputs.end())
         return it->second;

@@ -137,6 +137,65 @@ static GLuint GLDepthOnlyFragmentShader()
 }
 #endif
 
+#ifdef XR_PLATFORM_WEB
+// GLSL ES links a fragment input only to a vertex output of the same name,
+// while native separate shader objects do not check. A few stage pairs read
+// a varying their vertex stage never writes ("FRAGMENT varying xr_v2p_9 does
+// not match any VERTEX varying": model_distort_1 | particle_alphaonly).
+// Returns a copy of the vertex shader that declares the missing outputs (an
+// unwritten output reads as undefined, as it does natively), or 0.
+static GLuint GLDeclareMissingVaryings(GLuint program, GLuint vs)
+{
+    GLint length = 0;
+    glGetProgramiv(program, GL_INFO_LOG_LENGTH, &length);
+    if (length <= 1)
+        return 0;
+    xr_string log(length, '\0');
+    glGetProgramInfoLog(program, length, nullptr, log.data());
+
+    xr_string declarations;
+    constexpr pcstr marker = "FRAGMENT varying ";
+    for (size_t at = log.find(marker); at != xr_string::npos; at = log.find(marker, at + 1))
+    {
+        const size_t begin = at + xr_strlen(marker);
+        const size_t end = log.find(' ', begin);
+        if (end == xr_string::npos || log.compare(end, 31, " does not match any VERTEX vary") != 0)
+            continue;
+        const xr_string name = log.substr(begin, end - begin);
+        if (name.rfind("xr_v2p_", 0) != 0) // only the rewriter's vec4 interface varyings
+            continue;
+        declarations += "out vec4 " + name + ";\n";
+    }
+    if (declarations.empty())
+        return 0;
+
+    GLint sourceLength = 0;
+    glGetShaderiv(vs, GL_SHADER_SOURCE_LENGTH, &sourceLength);
+    if (sourceLength <= 1)
+        return 0;
+    xr_string source(sourceLength, '\0');
+    glGetShaderSource(vs, sourceLength, nullptr, source.data());
+    source.resize(xr_strlen(source.c_str()));
+    const size_t versionEnd = source.find('\n');
+    if (versionEnd == xr_string::npos)
+        return 0;
+    source.insert(versionEnd + 1, declarations);
+
+    const GLuint patched = glCreateShader(GL_VERTEX_SHADER);
+    pcstr text = source.c_str();
+    glShaderSource(patched, 1, &text, nullptr);
+    glCompileShader(patched);
+    GLint status{};
+    glGetShaderiv(patched, GL_COMPILE_STATUS, &status);
+    if (GLboolean(status) == GL_FALSE)
+    {
+        glDeleteShader(patched);
+        return 0;
+    }
+    return patched;
+}
+#endif
+
 static GLuint GLLinkMonolithicProgram(pcstr name, GLuint ps, GLuint vs, GLuint gs)
 {
     XR_WEB_PROF(ProgramLink);
@@ -176,6 +235,23 @@ static GLuint GLLinkMonolithicProgram(pcstr name, GLuint ps, GLuint vs, GLuint g
 
     GLint status{};
     CHK_GL(glGetProgramiv(program, GL_LINK_STATUS, &status));
+#ifdef XR_PLATFORM_WEB
+    if (GLboolean(status) == GL_FALSE && !gs)
+    {
+        if (const GLuint patchedVs = GLDeclareMissingVaryings(program, vs))
+        {
+            glAttachShader(program, ps);
+            glAttachShader(program, patchedVs);
+            glLinkProgram(program);
+            glDetachShader(program, ps);
+            glDetachShader(program, patchedVs);
+            glDeleteShader(patchedVs);
+            glGetProgramiv(program, GL_LINK_STATUS, &status);
+            if (GLboolean(status) != GL_FALSE)
+                Msg("~ shader program linked after declaring missing vertex outputs: %s", name);
+        }
+    }
+#endif
     if (GLboolean(status) == GL_FALSE)
     {
         show_compile_errors(name, program, 0);
