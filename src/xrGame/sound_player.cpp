@@ -28,8 +28,13 @@ namespace
 // folder once; FS.exist still decides for the names it has.
 class sound_variants_filter
 {
-    xr_set<xr_string> m_names; // lowercase, with extension
-    bool m_listed{};
+    // lowercase file names (with extension) by folder; nullptr: not listable.
+    // Sound files do not change at run time, and the themes of one voice
+    // share folders: list each once.
+    using names = xr_set<xr_string>;
+    static inline xr_unordered_map<xr_string, std::unique_ptr<names>> s_folders;
+
+    const names* m_names{};
     size_t m_folder_length{};
 
     static xr_string lowercase(pcstr name)
@@ -38,6 +43,22 @@ class sound_variants_filter
         for (char& c : result)
             c = char(tolower(u8(c)));
         return result;
+    }
+
+    static const names* list(const xr_string& folder)
+    {
+        const auto it = s_folders.find(folder);
+        if (it != s_folders.end())
+            return it->second.get();
+        std::unique_ptr<names> listed;
+        if (xr_vector<pstr>* files = FS.file_list_open("$game_sounds$", folder.c_str(), FS_ListFiles | FS_RootOnly))
+        {
+            listed = std::make_unique<names>();
+            for (pcstr file : *files)
+                listed->emplace(lowercase(file));
+            FS.file_list_close(files);
+        }
+        return s_folders.emplace(folder, std::move(listed)).first->second.get();
     }
 
 public:
@@ -49,22 +70,15 @@ public:
         if (!slash)
             return;
         m_folder_length = size_t(slash - stem) + 1;
-        const xr_string folder(stem, m_folder_length);
-        xr_vector<pstr>* files = FS.file_list_open("$game_sounds$", folder.c_str(), FS_ListFiles | FS_RootOnly);
-        if (!files)
-            return; // unknown folder: filter nothing
-        for (pcstr file : *files)
-            m_names.emplace(lowercase(file));
-        FS.file_list_close(files);
-        m_listed = true;
+        m_names = list(xr_string(stem, m_folder_length));
     }
 
     // false only when the variant certainly has no .ogg
     bool may_exist(pcstr name) const
     {
-        if (!m_listed)
-            return true;
-        return m_names.find(lowercase(name + m_folder_length) + ".ogg") != m_names.end();
+        if (!m_names)
+            return true; // unknown folder: filter nothing
+        return m_names->find(lowercase(name + m_folder_length) + ".ogg") != m_names->end();
     }
 };
 } // namespace
