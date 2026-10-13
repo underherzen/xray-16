@@ -930,7 +930,7 @@ end
 --   1 = { infop_check = { 1 = {"infop1" = true} }, infop_set = { 1 = {"infop2" = false } }, section = "section1" },
 --   2 = { infop_check = { 1 = {"infop3" = true}, 2 = {"infop4" = false} }, infop_set = {}, section = "section2" },
 -- }
-function parse_condlist(npc, section, field, src)
+function parse_condlist_uncached(npc, section, field, src)
 	local lst = {}
 
 	-- 1) –азбиваем на разделенные зап€тыми части:
@@ -990,6 +990,22 @@ function parse_condlist(npc, section, field, src)
 		n = n + 1
 	end
 
+	return lst
+end
+
+-- Condlist strings get parsed again on every check by some callers (task
+-- title/description functors, smart terrain job preconditions): ~5% of the
+-- CPU in the browser build. The result depends on src alone and nothing
+-- modifies it, so each string is parsed once.
+local parsed_condlists = {}
+function parse_condlist(npc, section, field, src)
+	local lst = parsed_condlists[src]
+	if lst == nil then
+		lst = parse_condlist_uncached(npc, section, field, src)
+		if src ~= nil then
+			parsed_condlists[src] = lst
+		end
+	end
 	return lst
 end
 
