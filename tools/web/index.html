@@ -19,6 +19,14 @@
                align-items: center; justify-content: center; cursor: pointer;
                background: rgba(0,0,0,.55); color: #cfc; font: 20px sans-serif; }
   #audiogate[hidden] { display: none; }
+  #loader { position: absolute; left: 50%; bottom: 2%; transform: translateX(-50%); z-index: 2;
+            width: min(560px, calc(100% - 32px)); padding: 14px 16px; box-sizing: border-box;
+            background: rgba(0,0,0,.72); border: 1px solid #586; color: #cfc;
+            font: 14px sans-serif; pointer-events: none; }
+  #loader[hidden] { display: none; }
+  #loader .bar { height: 8px; margin: 10px 0 6px; background: #232; overflow: hidden; }
+  #loader .fill { height: 100%; width: 0; background: #8c8; transition: width .2s; }
+  #loader .small { font-size: 12px; color: #9b9; }
   #crash { position: absolute; inset: 0; z-index: 3; overflow: auto; padding: 24px;
            background: rgba(40,0,0,.92); color: #fcc; font: 13px monospace; white-space: pre-wrap; }
   #crash[hidden] { display: none; }
@@ -30,6 +38,7 @@
 <button id="fullscreen" title="Fullscreen + mouse capture">fullscreen</button>
 <button id="sendsaves" title="Upload saves and user.ltx to the local dev server">отправить сейвы</button>
 <div id="crash" hidden></div>
+<div id="loader" hidden><div id="loader-title"></div><div class="bar"><div class="fill" id="loader-fill"></div></div><div class="small" id="loader-text"></div></div>
 <div id="audiogate" hidden>Нажмите, чтобы продолжить (включить звук)</div>
 <script>
   var statusElement = document.getElementById('status');
@@ -339,6 +348,142 @@
     }, 500);
   })();
 </script>
-<script src="xr_3da.js"></script>
+<script>
+  // Loading progress. Startup: the engine binary, the file index and the
+  // startup pack (~180Mb together) are fetched here, before the engine runs,
+  // with real byte counts; the engine then takes them from memory
+  // (Module.wasmBinary, XRFS_CONFIG.indexText/packData). Level loads: the
+  // loading screen's stage progress plus what XRFS actually downloaded, and
+  // an estimate of what is left from the previous level load.
+  (function () {
+    var loader = document.getElementById('loader');
+    var title = document.getElementById('loader-title');
+    var fill = document.getElementById('loader-fill');
+    var text = document.getElementById('loader-text');
+    var MB = function (b) { return (b / 1048576).toFixed(b < 10485760 ? 1 : 0); };
+    var logged = -Infinity;
+    function show(t, share, detail) {
+      if (params.get('mem') && performance.now() - logged > 2000) { // probes: the overlay is not on the canvas shots
+        logged = performance.now();
+        console.log('LOADER ' + t + ' | ' + Math.round(share * 100) + '% | ' + (detail || ''));
+      }
+      loader.hidden = false;
+      title.textContent = t;
+      fill.style.width = Math.max(0, Math.min(100, share * 100)).toFixed(1) + '%';
+      text.textContent = detail || '';
+    }
+    function eta(seconds) {
+      if (!isFinite(seconds) || seconds <= 0) return '';
+      return seconds < 60 ? Math.ceil(seconds) + ' с' : Math.floor(seconds / 60) + ' мин ' + Math.ceil(seconds % 60) + ' с';
+    }
+
+    var parts = [{ url: 'xr_3da.wasm' }, { url: 'files.json' }, { url: 'pack.bin' }];
+    var started = performance.now();
+    function progress() {
+      var got = 0, total = 0, known = true;
+      parts.forEach(function (p) { got += p.got || 0; if (p.total) total += p.total; else known = false; });
+      var speed = got / Math.max(0.001, (performance.now() - started) / 1000);
+      var left = known ? (total - got) / speed : NaN;
+      show('Загрузка игры', known && total ? got / total : 0,
+        MB(got) + (known ? ' / ' + MB(total) : '') + ' МБ · ' + MB(speed) + ' МБ/с' +
+        (eta(left) ? ' · осталось ' + eta(left) : ''));
+    }
+    function download(part) {
+      return fetch(part.url).then(function (r) {
+        if (!r.ok) throw new Error(part.url + ': HTTP ' + r.status);
+        part.total = +r.headers.get('Content-Length') || 0;
+        var reader = r.body.getReader(), chunks = [];
+        part.got = 0;
+        return (function pump() {
+          return reader.read().then(function (step) {
+            if (step.done) return;
+            chunks.push(step.value);
+            part.got += step.value.length;
+            return pump();
+          });
+        })().then(function () {
+          var out = new Uint8Array(part.got), at = 0;
+          chunks.forEach(function (c) { out.set(c, at); at += c.length; });
+          part.data = out;
+        });
+      });
+    }
+    var timer = setInterval(progress, 200);
+    progress();
+    Promise.all(parts.map(download)).then(function () {
+      clearInterval(timer);
+      Module.wasmBinary = parts[0].data.buffer;
+      window.XRFS_CONFIG = window.XRFS_CONFIG || {};
+      XRFS_CONFIG.indexText = new TextDecoder().decode(parts[1].data);
+      XRFS_CONFIG.packData = parts[2].data;
+      parts.forEach(function (p) { p.data = null; });
+      show('Запуск движка…', 1, '');
+      var prevInit = Module.onRuntimeInitialized;
+      Module.onRuntimeInitialized = function () {
+        if (prevInit) prevInit();
+        // main() runs right after and blocks until the engine is up; a timer
+        // fires once it has handed over to the browser's frame loop.
+        setTimeout(function () { loader.hidden = true; watchLevelLoads(); }, 0);
+      };
+      var script = document.createElement('script');
+      script.src = 'xr_3da.js';
+      document.body.appendChild(script);
+    }, function (e) {
+      clearInterval(timer);
+      show('Не удалось загрузить игру', 0, e.message + ' — перезагрузите страницу');
+    });
+
+    // The loading screen being up is the load (the engine reports "ready" in
+    // the middle of a new game's load, which then reads most of its data);
+    // it is over once the level is ready and nothing has arrived for a while
+    // -- then the screen waits for a key.
+    function watchLevelLoads() {
+      var KEY = 'xr_level_load_bytes';
+      var load = null;
+      setInterval(function () {
+        var state = 0;
+        try { state = Module.ccall('xr_web_loading_state', 'number', [], []); } catch (e) {}
+        var io = Module.XRFS && Module.XRFS.io;
+        if (state === 0 || !io) {
+          if (load && !load.done && load.bytes > 0) {
+            try { localStorage.setItem(KEY, String(load.bytes)); } catch (e) {}
+          }
+          load = null;
+          loader.hidden = true;
+          return;
+        }
+        var now = performance.now();
+        if (!load) {
+          var last = 0;
+          try { last = +localStorage.getItem(KEY) || 0; } catch (e) {}
+          load = { startBytes: io.bytes, startTime: now, expected: last, bytes: 0, changed: now, done: false };
+        }
+        var bytes = io.bytes - load.startBytes;
+        if (bytes !== load.bytes) { load.bytes = bytes; load.changed = now; }
+        load.done = state === 2 && now - load.changed > 3000; // data arriving again undoes it
+        if (load.done) {
+          try { localStorage.setItem(KEY, String(load.bytes)); } catch (e) {}
+          show('Загрузка уровня завершена', 1, MB(load.bytes) + ' МБ — нажмите любую клавишу');
+          return;
+        }
+        var seconds = Math.max(0.001, (now - load.startTime) / 1000);
+        var speed = load.bytes / seconds;
+        var detail = MB(load.bytes), share;
+        if (load.expected > 0) {
+          // the previous level load as the yardstick: real bytes, estimated total
+          var total = Math.max(load.expected, load.bytes);
+          share = Math.min(0.99, load.bytes / total);
+          detail += ' / ≈' + MB(total) + ' МБ · ' + MB(speed) + ' МБ/с';
+          var left = (total - load.bytes) / speed;
+          if (load.bytes < total && eta(left)) detail += ' · осталось ~' + eta(left);
+        } else {
+          share = 1 - Math.exp(-seconds / 30); // first load: no total known yet
+          detail += ' МБ · ' + MB(speed) + ' МБ/с';
+        }
+        show('Загрузка уровня', share, detail);
+      }, 250);
+    }
+  })();
+</script>
 </body>
 </html>

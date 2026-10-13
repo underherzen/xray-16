@@ -296,7 +296,9 @@ var XRFS = {
             var fs = require('node:fs');
             text = fs.readFileSync(cfg.indexFile || cfg.baseDir + '/files.json', 'utf8');
         } else {
-            text = new TextDecoder().decode(XRFS.xhrRange(cfg.indexUrl));
+            // index.html downloads it ahead (with a progress bar)
+            text = cfg.indexText != null ? cfg.indexText : new TextDecoder().decode(XRFS.xhrRange(cfg.indexUrl));
+            cfg.indexText = null;
         }
         var raw = JSON.parse(text);
 
@@ -334,7 +336,8 @@ var XRFS = {
                 if (!fs.existsSync(path)) return;
                 data = new Uint8Array(fs.readFileSync(path));
             } else {
-                data = XRFS.xhrRange(cfg.packUrl);
+                data = cfg.packData || XRFS.xhrRange(cfg.packUrl);
+                cfg.packData = null;
             }
         } catch (e) {
             console.log('XRFS: no startup pack (' + e.message + '), falling back to per-file requests');
