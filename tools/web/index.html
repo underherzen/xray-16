@@ -11,6 +11,10 @@
                 background: rgba(0,0,0,.5); color: #9c9; border: 1px solid #9c9;
                 font: 12px monospace; cursor: pointer; }
   :fullscreen #fullscreen { display: none; }
+  #sendsaves { position: absolute; top: 8px; right: 100px; z-index: 1; padding: 4px 10px;
+               background: rgba(0,0,0,.5); color: #9c9; border: 1px solid #9c9;
+               font: 12px monospace; cursor: pointer; }
+  :fullscreen #sendsaves { display: none; }
   #audiogate { position: absolute; inset: 0; z-index: 2; display: flex;
                align-items: center; justify-content: center; cursor: pointer;
                background: rgba(0,0,0,.55); color: #cfc; font: 20px sans-serif; }
@@ -24,6 +28,7 @@
 <canvas id="canvas"></canvas>
 <div id="status">loading…</div>
 <button id="fullscreen" title="Fullscreen + mouse capture">fullscreen</button>
+<button id="sendsaves" title="Upload saves and user.ltx to the local dev server">отправить сейвы</button>
 <div id="crash" hidden></div>
 <div id="audiogate" hidden>Нажмите, чтобы продолжить (включить звук)</div>
 <script>
@@ -61,6 +66,26 @@
   document.getElementById('crash').addEventListener('click', function () { this.hidden = true; });
   window.addEventListener('error', function (e) {
     showCrash((e.error && e.error.stack) || e.message);
+  });
+
+  // Dev: send the browser's saves and settings to the local dev server
+  // (serve.py writes them to _uploads/) to reproduce a report.
+  document.getElementById('sendsaves').addEventListener('click', function () {
+    var button = this;
+    if (!Module.XRFS || !Module.XRFS.overlay) { button.textContent = 'ещё не загружено'; return; }
+    var files = [];
+    Module.XRFS.overlay.forEach(function (entry, path) {
+      if (entry.type === 'file' && entry.data &&
+          (path.indexOf('_appdata_/savedgames/') === 0 || path === '_appdata_/user.ltx'))
+        files.push([path, entry.data]);
+    });
+    button.textContent = 'отправка ' + files.length + '…';
+    Promise.all(files.map(function (f) {
+      return fetch('upload?path=' + f[0], { method: 'POST', body: f[1] }).then(function (r) {
+        if (!r.ok) throw new Error(f[0] + ': ' + r.status);
+      });
+    })).then(function () { button.textContent = 'отправлено: ' + files.length; },
+             function (e) { button.textContent = 'ошибка: ' + e.message; });
   });
 
   // Fullscreen needs a user gesture, so it hangs off a button. The whole

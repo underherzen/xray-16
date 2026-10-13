@@ -97,6 +97,32 @@ class RangeHandler(SimpleHTTPRequestHandler):
         return _SliceFile(fd, start, end)
 
 
+    def do_POST(self):
+        # Dev: the page's "send saves" button (index.html) uploads the
+        # browser's app data here, to reproduce a player's report locally.
+        # Paths stay under <docroot>/_uploads/_appdata_/.
+        match = re.fullmatch(r"/upload\?path=(_appdata_/[\w\-. /]+)", self.path)
+        length = int(self.headers.get("Content-Length") or 0)
+        if not match or ".." in match.group(1) or length > 256 * 1024 * 1024:
+            self.send_response(400)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        dest = os.path.join(self.directory, "_uploads", match.group(1))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as f:
+            remaining = length
+            while remaining:
+                chunk = self.rfile.read(min(remaining, 1 << 20))
+                if not chunk:
+                    break
+                f.write(chunk)
+                remaining -= len(chunk)
+        self.send_response(200)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+
 class _SliceFile:
     """A byte range of a cached fd, read with pread (no shared file position)."""
 

@@ -140,3 +140,21 @@ function wrapdump()
 		say("wrap %8.1f ms %6d calls %s", r[2] * 1000, r[3], r[1])
 	end
 end
+
+-- Spawn n monsters of a section dist metres ahead of the actor (they come
+-- online at once): spawn("dog_weak", 4, 20)
+function spawn(section, n, dist)
+	section = section or "dog_weak"
+	n = n or 3
+	dist = dist or 20
+	local a = db.actor
+	local dir = a:direction()
+	local base = a:position()
+	for i = 1, n do
+		local p = vector():set(base.x + dir.x * dist + (i - n / 2) * 2, base.y, base.z + dir.z * dist)
+		local lv = level.vertex_id(p)
+		if lv >= 4294967295 then lv = a:level_vertex_id() end
+		local se = alife():create(section, level.vertex_position(lv), lv, a:game_vertex_id())
+		say("spawn: %s id=%s lv=%d", section, tostring(se and se.id), lv)
+	end
+end
