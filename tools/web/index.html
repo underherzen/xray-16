@@ -160,6 +160,40 @@
     }, fsProfAt * 1000);
   }
 
+  // Dev probe: ?glprof=MS -- time every WebGL call; log single calls slower
+  // than MS and, per second, the calls that added up to the most time. A GL
+  // call blocks the main thread when ANGLE has to finish work in the GPU
+  // process first (shader compiles at first draw, texture uploads...).
+  var glProfMs = +params.get('glprof') || 0;
+  if (glProfMs > 0) {
+    var glTotals = {};
+    var proto = WebGL2RenderingContext.prototype;
+    Object.getOwnPropertyNames(proto).forEach(function (name) {
+      var d = Object.getOwnPropertyDescriptor(proto, name);
+      if (!d || typeof d.value !== 'function' || name === 'constructor')
+        return;
+      var fn = d.value;
+      proto[name] = function () {
+        var t0 = performance.now();
+        var r = fn.apply(this, arguments);
+        var dt = performance.now() - t0;
+        var e = glTotals[name] || (glTotals[name] = [0, 0]);
+        e[0] += dt; e[1]++;
+        if (dt >= glProfMs)
+          console.log('GLSLOW ' + name + ' ' + dt.toFixed(1) + ' ms');
+        return r;
+      };
+    });
+    setInterval(function () {
+      var top = Object.keys(glTotals).map(function (k) { return [k, glTotals[k][0], glTotals[k][1]]; })
+        .filter(function (r) { return r[1] >= 5; })
+        .sort(function (a, b) { return b[1] - a[1]; }).slice(0, 6);
+      if (top.length)
+        console.log('GLPROF ' + top.map(function (r) { return r[0] + ' ' + Math.round(r[1]) + 'ms/' + r[2]; }).join(' '));
+      glTotals = {};
+    }, 1000);
+  }
+
   // Dev probe: ?iotop=SEC -- the files XRFS fetched most bytes of, by then.
   var ioTopAt = +params.get('iotop') || 0;
   if (ioTopAt > 0) {
