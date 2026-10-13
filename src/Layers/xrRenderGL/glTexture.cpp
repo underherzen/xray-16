@@ -164,30 +164,35 @@ GLuint CRender::texture_load(pcstr fRName, u32& ret_msize, GLenum& ret_desc, u32
 
     glm::tvec3<GLsizei> const tex_extent(texture.extent());
 
-    GLenum err;
+    // On the web every glGetError is a round trip that waits until the GPU
+    // process has executed all queued work (the uploads just issued included):
+    // a check per mip level stalled the frame for each texture loaded in game.
+    // WebGL reports its errors in the browser console anyway.
+    const auto check_error = [&]([[maybe_unused]] pcstr what)
+    {
+#ifndef XR_PLATFORM_WEB
+        const GLenum err = glGetError();
+        if (err != GL_NO_ERROR)
+        {
+            VERIFY(err == GL_NO_ERROR);
+            Msg("! OpenGL: 0x%x: %s: '%s'", err, what, fn);
+        }
+#endif
+    };
+
     switch (texture.target())
     {
     case gli::TARGET_2D:
     case gli::TARGET_CUBE:
         glTexStorage2D(target, static_cast<GLint>(texture.levels()), format.Internal,
                        tex_extent.x, tex_extent.y);
-        err = glGetError();
-        if (err != GL_NO_ERROR)
-        {
-            VERIFY(err == GL_NO_ERROR);
-            Msg("! OpenGL: 0x%x: Invalid 2D texture: '%s'", err, fn);
-        }
+        check_error("Invalid 2D texture");
         break;
     case gli::TARGET_3D:
     case gli::TARGET_CUBE_ARRAY:
         glTexStorage3D(target, static_cast<GLint>(texture.levels()), format.Internal,
                        tex_extent.x, tex_extent.y, tex_extent.z);
-        err = glGetError();
-        if (err != GL_NO_ERROR)
-        {
-            VERIFY(err == GL_NO_ERROR);
-            Msg("! OpenGL: 0x%x: Invalid 3D texture: '%s'", err, fn);
-        }
+        check_error("Invalid 3D texture");
         break;
     default:
         NODEFAULT;
@@ -216,12 +221,7 @@ GLuint CRender::texture_load(pcstr fRName, u32& ret_msize, GLenum& ret_desc, u32
                                     0, 0, tex_level_extent.x, tex_level_extent.y,
                                     format.Internal, static_cast<GLsizei>(texture.size(level)),
                                     texture.data(layer, face, level));
-                        err = glGetError();
-                        if (err != GL_NO_ERROR)
-                        {
-                            VERIFY(err == GL_NO_ERROR);
-                            Msg("! OpenGL: 0x%x: Invalid 2D compressed subtexture: '%s'", err, fn);
-                        }
+                        check_error("Invalid 2D compressed subtexture");
                     }
                     else
                     {
@@ -229,12 +229,7 @@ GLuint CRender::texture_load(pcstr fRName, u32& ret_msize, GLenum& ret_desc, u32
                                     0, 0, tex_level_extent.x, tex_level_extent.y,
                                     format.External, format.Type,
                                     texels(layer, face, level));
-                        err = glGetError();
-                        if (err != GL_NO_ERROR)
-                        {
-                            VERIFY(err == GL_NO_ERROR);
-                            Msg("! OpenGL: 0x%x: Invalid 2D subtexture: '%s'", err, fn);
-                        }
+                        check_error("Invalid 2D subtexture");
 
                     }
                     break;
@@ -248,12 +243,7 @@ GLuint CRender::texture_load(pcstr fRName, u32& ret_msize, GLenum& ret_desc, u32
                                     0, 0, 0, tex_level_extent.x, tex_level_extent.y, tex_level_extent.z,
                                     format.Internal, static_cast<GLsizei>(texture.size(level)),
                                     texture.data(layer, face, level));
-                        err = glGetError();
-                        if (err != GL_NO_ERROR)
-                        {
-                            VERIFY(err == GL_NO_ERROR);
-                            Msg("! OpenGL: 0x%x: Invalid compressed 3D subtexture: '%s'", err, fn);
-                        }
+                        check_error("Invalid compressed 3D subtexture");
                     }
                     else
                     {
@@ -261,12 +251,7 @@ GLuint CRender::texture_load(pcstr fRName, u32& ret_msize, GLenum& ret_desc, u32
                                     0, 0, 0, tex_level_extent.x, tex_level_extent.y, tex_level_extent.z,
                                     format.External, format.Type,
                                     texels(layer, face, level));
-                        err = glGetError();
-                        if (err != GL_NO_ERROR)
-                        {
-                            VERIFY(err == GL_NO_ERROR);
-                            Msg("! OpenGL: 0x%x: Invalid 3D subtexture: '%s'", err, fn);
-                        }
+                        check_error("Invalid 3D subtexture");
                     }
                     break;
                 }
