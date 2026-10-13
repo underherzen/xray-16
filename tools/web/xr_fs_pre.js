@@ -719,6 +719,7 @@ var XRFS = {
                     : XRFS.xhrRange(files[path]);
                 XRFS.overlay.set(path.toLowerCase(),
                     { type: 'file', data: data, origName: path.substring(path.lastIndexOf('/') + 1) });
+                XRFS.statMisses.clear();
                 console.log('XRFS: injected ' + path + ' (' + data.length + ' bytes)');
             } catch (e) {
                 console.log('XRFS: inject ' + path + ' failed: ' + e.message);
@@ -810,6 +811,7 @@ var XRFS = {
                 if (dropped) console.log('XRFS: dropped ' + dropped + ' stale app data entries from IndexedDB');
                 db.close();
                 if (count) console.log('XRFS: restored ' + count + ' app data entries from IndexedDB');
+                XRFS.statMisses.clear();
                 removeRunDependency('xrfs-persist');
             };
         });
@@ -877,6 +879,32 @@ var XRFS = {
         };
     },
 
+    // FS.stat misses are the common case: on case-sensitive systems the
+    // engine stats every path it resolves before looking it up in its own
+    // archive index, and a stalker's sound themes probe <prefix>0..N for each
+    // variant (~40k misses per group of NPCs coming online). Each miss walks
+    // Emscripten's lookupPath; remember misses until anything is created or
+    // moved. Overlay entries added behind FS's back clear it too.
+    statMisses: new Set(),
+    statCacheInstall: function () {
+        var misses = XRFS.statMisses, stat = FS.stat;
+        FS.stat = function (path, dontFollow) {
+            if (!dontFollow && misses.has(path))
+                throw new FS.ErrnoError(XRFS.E.ENOENT);
+            try {
+                return stat.apply(this, arguments);
+            } catch (e) {
+                if (!dontFollow && e && e.errno === XRFS.E.ENOENT && misses.size < 200000)
+                    misses.add(path);
+                throw e;
+            }
+        };
+        ['mknod', 'mkdir', 'rename', 'symlink', 'chdir', 'mount'].forEach(function (k) {
+            var fn = FS[k];
+            FS[k] = function () { misses.clear(); return fn.apply(this, arguments); };
+        });
+    },
+
     cacheDrop: function (path) {
         var prefix = path + ':', drop = [];
         XRFS.blocks.forEach(function (b, k) { if (k.indexOf(prefix) === 0) drop.push(k); });
@@ -890,6 +918,7 @@ var XRFS = {
         XRFS.cfg = cfg;
         XRFS.sabInit();
         if (cfg.profile) XRFS.profileOps();
+        XRFS.statCacheInstall();
         FS.mkdirTree(cfg.mountpoint);
         FS.mount(XRFS, {}, cfg.mountpoint);
         FS.chdir(cfg.mountpoint);
