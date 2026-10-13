@@ -107,7 +107,9 @@ pcstr FS_Path::_update(string_path& dest, pcstr src) const
 #if !defined(XR_PLATFORM_WINDOWS) // XXX: replace with runtime check for case-sensitivity
     string_path fullPath;
     strconcat(fullPath, m_Path, temp);
-    if (FS.exist(fullPath, FSType::External) || FS.exist(fullPath, FSType::Virtual))
+    // the archive index first: a stat() per resolved path is a syscall (a JS
+    // file system walk in the browser build)
+    if (FS.exist(fullPath, FSType::Virtual) || FS.exist(fullPath, FSType::External))
     {
         xr_strcpy(dest, fullPath);
         return dest;
