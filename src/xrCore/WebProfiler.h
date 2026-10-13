@@ -3,6 +3,8 @@
 // Minimal named-slot profiler for the browser build: accumulates wall time
 // per slot, read and reset by the dev probes (tools/web, ?mem=) through
 // xr_web_prof_report(). Compiles to nothing elsewhere -- use Tracy there.
+// Off unless the engine runs with -web_prof: a slot costs two calls out to
+// performance.now(), and some sit on paths taken ~10k times per frame.
 //
 //   XR_WEB_PROF(SoundOcclusion); // times the rest of the enclosing scope
 
@@ -63,6 +65,7 @@ inline const char* const names[SlotCount] = {
     "r_lights", "r_combine", "snd_player_add",
     "snd_coll_find", "snd_coll_create",
 };
+inline bool enabled = false; // -web_prof
 inline double ms[SlotCount]{};
 inline unsigned calls[SlotCount]{};
 
@@ -74,9 +77,11 @@ struct Scope
 {
     Slot slot;
     double start;
-    explicit Scope(Slot s) : slot(s), start(emscripten_get_now()) {}
+    explicit Scope(Slot s) : slot(s), start(enabled ? emscripten_get_now() : -1.0) {}
     ~Scope()
     {
+        if (start < 0.0)
+            return;
         ms[slot] += emscripten_get_now() - start;
         ++calls[slot];
     }

@@ -84,6 +84,10 @@
   // long runs can be checked against the 2.5 GB budget.
   var memEvery = +params.get('mem') || 0;
   if (memEvery > 0) {
+    // the engine's profiling slots and hitch log are off without it;
+    // &prof=0 keeps them off to measure frame times without their overhead
+    if (params.get('prof') !== '0')
+      Module.arguments = Module.arguments.concat(['-web_prof']);
     // The engine frame runs inside rAF, so the rAF rate is the game FPS.
     var frames = 0, worst = 0, last = performance.now();
     (function tick(now) {

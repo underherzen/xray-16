@@ -134,6 +134,9 @@ void InitSettings()
     InitConfig(pSettingsOpenXRay, "openxray.ltx", false, true, true, false);
     InitConfig(pGameIni, "game.ltx");
 
+#ifdef XR_PLATFORM_WEB
+    xray::web_prof::enabled = strstr(Core.Params, "-web_prof") != nullptr;
+#endif
     if (strstr(Core.Params, "-shoc") || strstr(Core.Params, "-soc"))
         set_shoc_mode();
     else if (strstr(Core.Params, "-cs"))
@@ -472,6 +475,11 @@ void CApplication::WebApplicationFrame()
         return;
     }
     using namespace xray::web_prof;
+    if (!enabled)
+    {
+        RunApplicationFrame(s_application);
+        return;
+    }
     double slotMs[SlotCount];
     for (int i = 0; i < SlotCount; ++i)
         slotMs[i] = ms[i];

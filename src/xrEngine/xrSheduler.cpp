@@ -370,12 +370,13 @@ void CSheduler::ProcessStep()
         m_current_step_obj = item.Object;
 
 #ifdef XR_PLATFORM_WEB
-        const double updateStart = emscripten_get_now();
+        const double updateStart = xray::web_prof::enabled ? emscripten_get_now() : -1.0;
 #endif
         item.Object->shedule_Update(
             clampr(Elapsed, u32(1), u32(_max(u32(schedulerData.t_max), u32(1000)))));
 #ifdef XR_PLATFORM_WEB
-        if (const double updateMs = emscripten_get_now() - updateStart; updateMs > xray::web_prof::sched_worst_ms)
+        if (const double updateMs = updateStart < 0.0 ? 0.0 : emscripten_get_now() - updateStart;
+            updateMs > xray::web_prof::sched_worst_ms)
         {
             xray::web_prof::sched_worst_ms = updateMs;
             // a self-unregistering object may be gone already
