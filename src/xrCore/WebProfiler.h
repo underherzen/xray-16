@@ -47,6 +47,9 @@ enum Slot
     RenderDetails,
     RenderLights,
     RenderCombine,
+    SoundPlayerAdd,
+    SoundCollectionFind,
+    SoundCollectionCreate,
     SlotCount
 };
 
@@ -57,7 +60,8 @@ inline const char* const names[SlotCount] = {
     "script_binder_spawn", "model_create", "physics_shell", "stalker_spawn",
     "object_destroy", "object_list_update", "game_events",
     "r_calculate", "r_main_calc", "r_sun_calc", "r_sun", "r_details_calc", "r_details",
-    "r_lights", "r_combine",
+    "r_lights", "r_combine", "snd_player_add",
+    "snd_coll_find", "snd_coll_create",
 };
 inline double ms[SlotCount]{};
 inline unsigned calls[SlotCount]{};

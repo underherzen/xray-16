@@ -7,6 +7,7 @@
 ////////////////////////////////////////////////////////////////////////////
 
 #include "StdAfx.h"
+#include "xrCore/WebProfiler.h"
 #include "sound_collection_storage.h"
 #include "Common/object_broker.h"
 
@@ -30,9 +31,13 @@ CSoundCollectionStorage::~CSoundCollectionStorage() { delete_data(m_objects); }
 const CSoundCollectionStorage::SOUND_COLLECTION_PAIR& CSoundCollectionStorage::object(
     const CSoundCollectionParams& params)
 {
-    OBJECTS::const_iterator I = std::find_if(m_objects.begin(), m_objects.end(), collection_predicate(params));
-    if (I != m_objects.end())
-        return (*I);
+    {
+        XR_WEB_PROF(SoundCollectionFind);
+        OBJECTS::const_iterator I = std::find_if(m_objects.begin(), m_objects.end(), collection_predicate(params));
+        if (I != m_objects.end())
+            return (*I);
+    }
+    XR_WEB_PROF(SoundCollectionCreate);
 
     return m_objects.emplace_back(params, xr_new<CSoundCollection>(params));
 }

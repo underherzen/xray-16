@@ -7,6 +7,7 @@
 ////////////////////////////////////////////////////////////////////////////
 
 #include "StdAfx.h"
+#include "xrCore/WebProfiler.h"
 #include "sound_player.h"
 #include "xrScriptEngine/script_engine.hpp"
 #include "ai/stalker/ai_stalker_space.h"
@@ -58,6 +59,7 @@ void CSoundPlayer::unload()
 u32 CSoundPlayer::add(LPCSTR prefix, u32 max_count, ESoundTypes type, u32 priority, u32 mask, u32 internal_type,
     LPCSTR bone_name, CSound_UserDataPtr data)
 {
+    XR_WEB_PROF(SoundPlayerAdd);
     SOUND_COLLECTIONS::iterator I = m_sounds.find(internal_type);
     if (m_sounds.end() != I)
         return (0);
