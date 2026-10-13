@@ -493,6 +493,50 @@ public:
     }
 };
 
+#ifdef XR_PLATFORM_WEB
+// Dev: create every shader -- C++ blenders and the .s scripts -- in every
+// skinning variant, so stage pairs WebGL refuses to link show up in the log
+// ("! shader compilation failed") at once rather than when some object first
+// comes into view in a player's game. Slow (a link is 20-150ms in a browser).
+class CCC_web_check_shaders : public IConsole_Command
+{
+public:
+    CCC_web_check_shaders(pcstr N) : IConsole_Command(N) { bEmptyArgsHandled = true; }
+    void Execute(pcstr /*args*/) override
+    {
+        auto& resources = *RImplementation.Resources;
+        xr_vector<xr_string> names;
+        for (const auto& [name, blender] : resources._GetBlenders())
+            names.emplace_back(name);
+        if (xr_vector<pstr>* files = FS.file_list_open("$game_shaders$", RImplementation.getShaderPath(), FS_ListFiles | FS_RootOnly))
+        {
+            for (pcstr file : *files)
+            {
+                const size_t length = xr_strlen(file);
+                if (length > 2 && 0 == xr_strcmp(file + length - 2, ".s"))
+                    names.emplace_back(file, length - 2);
+            }
+            FS.file_list_close(files);
+        }
+
+        const int skinning = RImplementation.m_skinning;
+        u32 created = 0;
+        for (int skin = -1; skin <= 4; ++skin)
+        {
+            RImplementation.m_skinning = skin;
+            for (const xr_string& name : names)
+            {
+                if (resources.Create(name.c_str(), "ed\\ed_not_existing_texture,ed\\ed_not_existing_texture,ed\\ed_not_existing_texture,ed\\ed_not_existing_texture"))
+                    ++created;
+            }
+        }
+        RImplementation.m_skinning = skinning;
+        Msg("* web_check_shaders: %u shader names x 6 skinning variants, %u created; "
+            "failed pairs are logged as '! shader compilation failed'", u32(names.size()), created);
+    }
+};
+#endif
+
 class CCC_memory_stats : public IConsole_Command
 {
 public:
@@ -963,6 +1007,9 @@ void xrRender_initconsole()
 
     CMD3(CCC_Mask, "r3_volumetric_smoke", &ps_r2_ls_flags, R3FLAG_VOLUMETRIC_SMOKE);
     CMD1(CCC_memory_stats, "render_memory_stats");
+#ifdef XR_PLATFORM_WEB
+    CMD1(CCC_web_check_shaders, "web_check_shaders");
+#endif
 
     //CMD3(CCC_Mask, "r2_sun_ignore_portals", &ps_r2_ls_flags, R2FLAG_SUN_IGNORE_PORTALS);
 
