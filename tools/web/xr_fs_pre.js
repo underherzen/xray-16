@@ -49,6 +49,8 @@ var XRFS_CONFIG_DEFAULTS = {
     // logs; caches (should a build still write one) are regenerated, never worth keeping
     persistSkip: ['_appdata_/logs/', '_appdata_/cdb_cache/', '_appdata_/shaders_cache_oxr/'],
     persistDb: 'xrfs-appdata',
+    // longest wait for the fetch worker before falling back to sync XHR
+    sabTimeoutMs: 15000,
 };
 
 var XRFS = {
@@ -124,7 +126,8 @@ var XRFS = {
     },
 
     sabInit: function () {
-        if (XRFS.isNode() || !globalThis.crossOriginIsolated || typeof SharedArrayBuffer === 'undefined')
+        if (XRFS.isNode() || !globalThis.crossOriginIsolated || typeof SharedArrayBuffer === 'undefined' ||
+            XRFS.cfg.noSab)
             return;
         try {
             var ctrl = new SharedArrayBuffer(16);
@@ -156,10 +159,26 @@ var XRFS = {
         Atomics.store(s.ctrl, 0, 0);
         s.worker.postMessage({ url: new URL(url, location.href).href, start: start, end: end,
             nextStart: nextStart, nextEnd: nextEnd });
-        while (Atomics.load(s.ctrl, 0) === 0) { /* spin: Atomics.wait is banned on the main thread */ }
+        // spin: Atomics.wait is banned on the main thread. A fetch that never
+        // settles (dropped connection, server restart) would freeze the tab
+        // for good: give up after a while and stay on sync XHR from then on
+        // (a late answer from the worker would land in the next request).
+        var deadline = t0 + XRFS.cfg.sabTimeoutMs;
+        while (Atomics.load(s.ctrl, 0) === 0) {
+            if (performance.now() > deadline) {
+                console.warn('XRFS: worker fetch of ' + url + ' stalled for ' + XRFS.cfg.sabTimeoutMs +
+                    ' ms, switching to sync XHR');
+                XRFS.sab = null;
+                return null;
+            }
+        }
         var state = Atomics.load(s.ctrl, 0), len = Atomics.load(s.ctrl, 1), status = Atomics.load(s.ctrl, 2);
         if (state === 2) {
             if (len > s.data.length) return null; // whole-file response too big
+            if (status === 0) {
+                console.warn('XRFS: worker fetch of ' + url + ' failed, retrying with sync XHR');
+                return null; // network error: one more try the slow way
+            }
             throw new Error('XRFS: GET ' + url + ' -> ' + status);
         }
         var u8 = s.data.slice(0, len); // copy out of shared memory
@@ -176,33 +195,69 @@ var XRFS = {
         return u8;
     },
 
-    xhrRange: function (url, start, end) {
+    // One sync XHR: the body through the x-user-defined charset trick (sync
+    // XHR on the main thread forbids responseType != ''), plus the byte
+    // count the server says it sent (-1 if it does not say).
+    xhrGet: function (url, start, end) {
         var t0 = performance.now();
         var xhr = new XMLHttpRequest();
         xhr.open('GET', url, false);
         if (end !== undefined) xhr.setRequestHeader('Range', 'bytes=' + start + '-' + end);
-        // Sync XHR on the main thread forbids responseType != '' -- pull the
-        // bytes through a binary string instead (classic charset trick).
         try { xhr.overrideMimeType('text/plain; charset=x-user-defined'); } catch (e) {}
         xhr.send(null);
         if (xhr.status !== 200 && xhr.status !== 206 && xhr.status !== 0)
             throw new Error('XRFS: GET ' + url + ' -> ' + xhr.status);
+        var sent = -1, range = /bytes (\d+)-(\d+)\//.exec(xhr.getResponseHeader('Content-Range') || '');
+        if (xhr.status === 206 && range) sent = +range[2] - +range[1] + 1;
+        else if (xhr.getResponseHeader('Content-Length') !== null && !xhr.getResponseHeader('Content-Encoding'))
+            sent = +xhr.getResponseHeader('Content-Length');
         var text = xhr.responseText;
         var t1 = performance.now();
         var u8 = new Uint8Array(text.length);
         for (var i = 0; i < text.length; i++) u8[i] = text.charCodeAt(i) & 0xff;
-        var t2 = performance.now();
         XRFS.io.requests++;
         XRFS.io.bytes += u8.length;
         XRFS.io.xhrMs += t1 - t0;
-        XRFS.io.convertMs += t2 - t1;
+        XRFS.io.convertMs += performance.now() - t1;
         var per = XRFS.io.perUrl || (XRFS.io.perUrl = new Map());
         var e = per.get(url) || { n: 0, bytes: 0 };
         e.n++; e.bytes += u8.length;
         if (!XRFS.io.frameTop || u8.length > XRFS.io.frameTop.bytes)
             XRFS.io.frameTop = { url: url, bytes: u8.length };
         per.set(url, e);
-        return u8;
+        return { u8: u8, sent: sent };
+    },
+
+    // Bytes [start, end] of url (the whole file without end). Text decoding
+    // sniffs a byte order mark before honouring the charset override: a body
+    // that starts with EF BB BF, FE FF or FF FE comes back as UTF-8/UTF-16
+    // text, mangled and shorter (a 256Kb archive range read as 131071 bytes).
+    // Detect that by the byte count and move the range start back a byte
+    // (dropped afterwards); at the file's start, take the first bytes one by
+    // one -- a single byte is never a byte order mark.
+    xhrRange: function (url, start, end) {
+        start = start || 0;
+        for (var lead = 0; lead <= 8 && lead <= start; lead++) {
+            var r = XRFS.xhrGet(url, start - lead, end === undefined && lead === 0 ? undefined : end);
+            if (r.sent < 0 || r.u8.length === r.sent)
+                return lead ? r.u8.subarray(lead) : r.u8;
+            if (end === undefined) end = start - lead + r.sent - 1; // whole file: now its size is known
+        }
+        if (start < 3) {
+            var head = [];
+            for (var i = start; i < 3 && (end === undefined || i <= end); i++) {
+                var b = XRFS.xhrGet(url, i, i);
+                if (b.u8.length !== 1) break; // past the end of the file
+                head.push(b.u8[0]);
+            }
+            var tail = head.length === 3 - start && (end === undefined || end >= 3)
+                ? XRFS.xhrRange(url, 3, end) : new Uint8Array(0);
+            var out = new Uint8Array(head.length + tail.length);
+            out.set(head, 0);
+            out.set(tail, head.length);
+            return out;
+        }
+        throw new Error('XRFS: GET ' + url + ': response keeps decoding as text');
     },
 
     urlFor: function (path) {
