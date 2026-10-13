@@ -115,8 +115,12 @@ local function wrap_one(path)
 	return true
 end
 
+local wrap_sets = {
+	spawn = "xr_motivator.motivator_binder.net_spawn,xr_motivator.motivator_binder.reinit,sound_theme.init_npc_sound,smart_terrain.setup_gulag_and_logic_on_spawn,state_mgr.bind_manager,move_mgr.move_mgr,xr_reach_task.add_reach_task_action,post_combat_idle.add_post_combat_idle,xr_logic.activate_by_section,xr_logic.initialize_obj,utils.cfg_get_string,trade_manager.trade_init",
+}
+
 function wrap(list)
-	list = list or "sound_theme.init_npc_sound,state_mgr.bind_manager,xr_info.loadInfo,smart_terrain.setup_gulag_and_logic_on_spawn,xr_logic.activate_by_section,xr_logic.pick_section_from_condlist,xr_logic.parse_condlist,smart_terrain.select_npc_job,xr_sound.set_sound_play,move_mgr.move_mgr,trade_manager.trade_init,xr_meet.init_meet,xr_wounded.init_wounded"
+	list = wrap_sets[list] or list or "sound_theme.init_npc_sound,state_mgr.bind_manager,xr_info.loadInfo,smart_terrain.setup_gulag_and_logic_on_spawn,xr_logic.activate_by_section,xr_logic.pick_section_from_condlist,xr_logic.parse_condlist,smart_terrain.select_npc_job,xr_sound.set_sound_play,move_mgr.move_mgr,trade_manager.trade_init,xr_meet.init_meet,xr_wounded.init_wounded"
 	local ok = {}
 	for path in string.gmatch(list, "[^,]+") do
 		local good, res = pcall(wrap_one, path)
