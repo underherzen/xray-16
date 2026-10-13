@@ -16,6 +16,7 @@
 #include "xrNetServer/NET_AuthCheck.h"
 
 #include "IGame_Persistent.h"
+#include "ILoadingScreen.h"
 #include "LightAnimLibrary.h"
 #include "XR_IOConsole.h"
 
@@ -523,6 +524,17 @@ void CApplication::WebApplicationFrame()
     s_webFrameMsSum += frameMs;
     s_webFrameMsMax = std::max(s_webFrameMsMax, frameMs);
     ++s_webFrameCount;
+}
+
+// For the page's loading overlay (index.html): 0 no loading screen, 1 a
+// level is loading, 2 loaded (the screen waits for a key). Stage counts are
+// no use for progress here: the loading screen advances a stage per frame,
+// and the browser build spreads a load over many frames.
+extern "C" EMSCRIPTEN_KEEPALIVE int xr_web_loading_state()
+{
+    if (!g_pGamePersistent || !g_pGamePersistent->m_pLoadingScreen || !g_pGamePersistent->m_pLoadingScreen->IsShown())
+        return 0;
+    return g_pGameLevel && g_pGameLevel->bReady && Device.dwPrecacheFrame == 0 ? 2 : 1;
 }
 
 // Dev hook for the browser probes (?mem=): the XR_WEB_PROF slots as
