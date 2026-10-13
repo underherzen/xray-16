@@ -87,3 +87,52 @@ function rays(step)
 	end
 	say("rays: %d/%d static hits around %.1f,%.1f,%.1f (step %dm)", hit, total, ap.x, ap.y, ap.z, step)
 end
+
+-- Wall-time accounting for chosen script functions (os.clock deltas,
+-- inclusive): wrap() once, then wrapdump() prints and resets. The hook
+-- profiler's per-call overhead distorts small functions; this does not.
+local wrapped = {}
+local function wrap_one(path)
+	local parent, key = _G, nil
+	for part in string.gmatch(path, "[^%.]+") do
+		if key then
+			parent = parent[key]
+			if parent == nil then return false end
+		end
+		key = part
+	end
+	local fn = parent[key]
+	if type(fn) ~= "function" then return false end
+	local rec = { t = 0, n = 0 }
+	wrapped[path] = rec
+	parent[key] = function(...)
+		local t0 = os.clock()
+		local r = { fn(...) }
+		rec.t = rec.t + (os.clock() - t0)
+		rec.n = rec.n + 1
+		return unpack(r)
+	end
+	return true
+end
+
+function wrap(list)
+	list = list or "sound_theme.init_npc_sound,state_mgr.bind_manager,xr_info.loadInfo,smart_terrain.setup_gulag_and_logic_on_spawn,xr_logic.activate_by_section,xr_logic.pick_section_from_condlist,xr_logic.parse_condlist,smart_terrain.select_npc_job,xr_sound.set_sound_play,move_mgr.move_mgr,trade_manager.trade_init,xr_meet.init_meet,xr_wounded.init_wounded"
+	local ok = {}
+	for path in string.gmatch(list, "[^,]+") do
+		local good, res = pcall(wrap_one, path)
+		table.insert(ok, path .. (good and res and "+" or "-"))
+	end
+	say("wrap: %s", table.concat(ok, " "))
+end
+
+function wrapdump()
+	local rows = {}
+	for path, rec in pairs(wrapped) do
+		if rec.n > 0 then table.insert(rows, { path, rec.t, rec.n }) end
+		rec.t, rec.n = 0, 0
+	end
+	table.sort(rows, function(a, b) return a[2] > b[2] end)
+	for _, r in ipairs(rows) do
+		say("wrap %8.1f ms %6d calls %s", r[2] * 1000, r[3], r[1])
+	end
+end
