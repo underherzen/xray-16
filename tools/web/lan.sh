@@ -4,7 +4,7 @@
 # that only the local subnet may use (one-time setup, admin PowerShell):
 #
 #   netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=8001 connectaddress=127.0.0.1 connectport=8001
-#   New-NetFirewallRule -DisplayName "xray-wasm LAN 8001" -Direction Inbound -Protocol TCP -LocalPort 8001 -RemoteAddress LocalSubnet -Action Allow
+#   netsh advfirewall firewall add rule name=xray-wasm-LAN-8001 dir=in action=allow protocol=TCP localport=8001 remoteip=localsubnet profile=any
 #
 #   lan.sh [docroot]   start (prints the link)
 #   lan.sh stop        stop the server
