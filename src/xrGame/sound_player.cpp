@@ -19,6 +19,56 @@
 #include "sound_collection_storage.h"
 #include "Common/object_broker.h"
 
+namespace
+{
+// A sound collection's variants are <stem>, <stem>0..<stem><max_count-1>, so
+// creating one used to cost a file system lookup per possible variant (~65,
+// nearly all misses; ~0.4ms per voice theme in the browser build, where an
+// NPC group coming online creates hundreds of them). This lists the stem's
+// folder once; FS.exist still decides for the names it has.
+class sound_variants_filter
+{
+    xr_set<xr_string> m_names; // lowercase, with extension
+    bool m_listed{};
+    size_t m_folder_length{};
+
+    static xr_string lowercase(pcstr name)
+    {
+        xr_string result = name;
+        for (char& c : result)
+            c = char(tolower(u8(c)));
+        return result;
+    }
+
+public:
+    explicit sound_variants_filter(pcstr stem)
+    {
+        pcstr slash = strrchr(stem, '\\');
+        if (pcstr forward = strrchr(stem, '/'); forward > slash)
+            slash = forward;
+        if (!slash)
+            return;
+        m_folder_length = size_t(slash - stem) + 1;
+        const xr_string folder(stem, m_folder_length);
+        xr_vector<pstr>* files = FS.file_list_open("$game_sounds$", folder.c_str(), FS_ListFiles | FS_RootOnly);
+        if (!files)
+            return; // unknown folder: filter nothing
+        for (pcstr file : *files)
+            m_names.emplace(lowercase(file));
+        FS.file_list_close(files);
+        m_listed = true;
+    }
+
+    // false only when the variant certainly has no .ogg
+    bool may_exist(pcstr name) const
+    {
+        if (!m_listed)
+            return true;
+        return m_names.find(lowercase(name + m_folder_length) + ".ogg") != m_names.end();
+    }
+};
+} // namespace
+
 CSoundPlayer::CSoundPlayer(IGameObject* object)
 {
     VERIFY(object);
@@ -247,7 +297,8 @@ CSoundPlayer::CSoundCollection::CSoundCollection(const CSoundCollectionParams& p
         pstr S = (pstr)&s;
         _GetItem(params.m_sound_prefix.c_str(), j, temp);
         strconcat(sizeof(s), S, params.m_sound_player_prefix.c_str(), temp);
-        if (FS.exist(fn, "$game_sounds$", S, ".ogg"))
+        const sound_variants_filter variants(S);
+        if (variants.may_exist(S) && FS.exist(fn, "$game_sounds$", S, ".ogg"))
         {
             ref_sound* temp = add(params.m_type, S);
             if (temp)
@@ -257,7 +308,7 @@ CSoundPlayer::CSoundCollection::CSoundCollection(const CSoundCollectionParams& p
         {
             string256 name;
             xr_sprintf(name, "%s%d", S, i);
-            if (FS.exist(fn, "$game_sounds$", name, ".ogg"))
+            if (variants.may_exist(name) && FS.exist(fn, "$game_sounds$", name, ".ogg"))
             {
                 ref_sound* temp = add(params.m_type, name);
                 if (temp)
