@@ -249,23 +249,36 @@ ICF void CBackend::set_VS(GLuint _vs, LPCSTR _n)
 }
 
 #ifdef XR_PLATFORM_WEB
-// Which of SV_Target0..2 a linked (monolithic, there are no separate shader
-// objects on WebGL2) program writes. Program names are never reused by the
-// emscripten GL layer, so caching by name is safe.
-inline u32 GetFragmentOutputsMask(GLuint program)
+// Which of SV_Target0..2 each linked (monolithic, there are no separate shader
+// objects on WebGL2) program writes. Filled by GLLinkMonolithicProgram: the
+// queries are synchronous, and right after its link-status check they cost a
+// round trip, while at the first draw they wait for everything the GPU process
+// has queued by then (60-200ms frames when new objects come into view).
+// Program names are never reused by the emscripten GL layer.
+inline std::unordered_map<GLuint, u32>& GLFragmentOutputs()
 {
-    static std::unordered_map<GLuint, u32> cache;
-    if (const auto it = cache.find(program); it != cache.end())
-        return it->second;
+    static std::unordered_map<GLuint, u32> outputs;
+    return outputs;
+}
+
+inline u32 GLQueryFragmentOutputs(GLuint program)
+{
     u32 mask = 0;
-    for (pcstr name : { "SV_Target", "SV_Target0", "SV_Target1", "SV_Target2" })
+    for (pcstr output : { "SV_Target", "SV_Target0", "SV_Target1", "SV_Target2" })
     {
-        const GLint location = glGetFragDataLocation(program, name);
+        const GLint location = glGetFragDataLocation(program, output);
         if (location >= 0 && location < 3)
             mask |= 1u << location;
     }
-    cache.emplace(program, mask);
     return mask;
+}
+
+inline u32 GetFragmentOutputsMask(GLuint program)
+{
+    auto& outputs = GLFragmentOutputs();
+    if (const auto it = outputs.find(program); it != outputs.end())
+        return it->second;
+    return outputs[program] = GLQueryFragmentOutputs(program);
 }
 #endif
 

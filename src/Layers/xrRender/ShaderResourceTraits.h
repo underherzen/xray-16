@@ -182,6 +182,9 @@ static GLuint GLLinkMonolithicProgram(pcstr name, GLuint ps, GLuint vs, GLuint g
         CHK_GL(glDeleteProgram(program));
         return 0; // 0 means error
     }
+#ifdef XR_PLATFORM_WEB
+    GLFragmentOutputs()[program] = GLQueryFragmentOutputs(program);
+#endif
     return program;
 }
 
