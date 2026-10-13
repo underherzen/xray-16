@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "xrCore/WebProfiler.h"
 #include "xrSheduler.h"
 #include "xr_object.h"
 #include "GameFont.h"
@@ -368,8 +369,20 @@ void CSheduler::ProcessStep()
 
         m_current_step_obj = item.Object;
 
+#ifdef XR_PLATFORM_WEB
+        const double updateStart = emscripten_get_now();
+#endif
         item.Object->shedule_Update(
             clampr(Elapsed, u32(1), u32(_max(u32(schedulerData.t_max), u32(1000)))));
+#ifdef XR_PLATFORM_WEB
+        if (const double updateMs = emscripten_get_now() - updateStart; updateMs > xray::web_prof::sched_worst_ms)
+        {
+            xray::web_prof::sched_worst_ms = updateMs;
+            // a self-unregistering object may be gone already
+            const pcstr name = m_current_step_obj ? item.Object->shedule_Name().c_str() : nullptr;
+            xr_strcpy(xray::web_prof::sched_worst_name, name ? name : "<unregistered>");
+        }
+#endif
         if (!m_current_step_obj)
         {
 #ifdef DEBUG_SCHEDULER

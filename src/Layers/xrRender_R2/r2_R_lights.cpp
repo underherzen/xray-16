@@ -1,9 +1,11 @@
 #include "stdafx.h"
+#include "xrCore/WebProfiler.h"
 
 namespace xray::render::RENDER_NAMESPACE
 {
 void CRender::render_lights(light_Package& LP)
 {
+    XR_WEB_PROF(RenderLights);
     ZoneScoped;
 
     //////////////////////////////////////////////////////////////////////////

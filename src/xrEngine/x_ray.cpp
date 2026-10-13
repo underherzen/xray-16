@@ -479,6 +479,7 @@ void CApplication::WebApplicationFrame()
     const double ioBytes = EM_ASM_DOUBLE({ return typeof XRFS !== 'undefined' ? XRFS.io.bytes : 0; });
     const double ioMs = EM_ASM_DOUBLE({ return typeof XRFS !== 'undefined' ? XRFS.io.xhrMs : 0; });
     EM_ASM({ if (typeof XRFS !== 'undefined') XRFS.io.frameTop = null; });
+    sched_worst_ms = 0.0;
 
     const double frameStart = emscripten_get_now();
     RunApplicationFrame(s_application);
@@ -503,6 +504,8 @@ void CApplication::WebApplicationFrame()
             }
         }
         Msg("%s", line);
+        if (sched_worst_ms >= 10.0)
+            Msg("* [hitch]   slowest scheduled update: %.0f ms %s", sched_worst_ms, sched_worst_name);
         EM_ASM({
             var t = typeof XRFS !== 'undefined' && XRFS.io.frameTop;
             if (t && t.bytes > 1048576)

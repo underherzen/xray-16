@@ -39,6 +39,14 @@ enum Slot
     ObjectDestroy,
     ObjectListUpdate,
     GameEvents,
+    RenderCalculate,
+    RenderMainCalc,
+    RenderSunCalc,
+    RenderSun,
+    RenderDetailsCalc,
+    RenderDetails,
+    RenderLights,
+    RenderCombine,
     SlotCount
 };
 
@@ -48,9 +56,15 @@ inline const char* const names[SlotCount] = {
     "scheduler", "lua_gc", "render", "alife_switch", "object_spawn", "snd_create",
     "script_binder_spawn", "model_create", "physics_shell", "stalker_spawn",
     "object_destroy", "object_list_update", "game_events",
+    "r_calculate", "r_main_calc", "r_sun_calc", "r_sun", "r_details_calc", "r_details",
+    "r_lights", "r_combine",
 };
 inline double ms[SlotCount]{};
 inline unsigned calls[SlotCount]{};
+
+// The slowest scheduled object update of the frame (the hitch log prints it).
+inline double sched_worst_ms = 0.0;
+inline char sched_worst_name[128]{};
 
 struct Scope
 {

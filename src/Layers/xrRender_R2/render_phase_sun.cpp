@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "xrCore/WebProfiler.h"
 
 #include "r2_R_sun_support.h"
 #include "xrCore/Threading/ParallelFor.hpp"
@@ -48,6 +49,7 @@ void render_sun::init()
 
 void render_sun::calculate()
 {
+    XR_WEB_PROF(RenderSunCalc);
     ZoneScoped;
 
     need_to_render_sunshafts = RImplementation.Target->need_to_render_sunshafts();
@@ -288,6 +290,7 @@ void render_sun::calculate()
 
 void render_sun::render()
 {
+    XR_WEB_PROF(RenderSun);
     if (!o.active)
         return;
 

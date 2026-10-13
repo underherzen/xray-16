@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "xrCore/WebProfiler.h"
 
 #include "xrEngine/CustomHUD.h"
 #include "xrCore/Threading/TaskManager.hpp"
@@ -29,6 +30,7 @@ void render_main::init()
 
 void render_main::calculate()
 {
+    XR_WEB_PROF(RenderMainCalc);
     ZoneScoped;
 
     auto& dsgraph_main = RImplementation.get_imm_context();
@@ -66,6 +68,7 @@ void render_main::render()
 void CRender::Calculate()
 {
     ZoneScopedN("r2_calculate");
+    XR_WEB_PROF(RenderCalculate);
 
     // Transfer to global space to avoid deep pointer access
     float fov_factor = _sqr(90.f / Device.fFOV);

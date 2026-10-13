@@ -3,6 +3,7 @@
 //////////////////////////////////////////////////////////////////////
 
 #include "stdafx.h"
+#include "xrCore/WebProfiler.h"
 #pragma hdrstop
 
 #include "DetailManager.h"
@@ -399,6 +400,7 @@ bool CDetailManager::UseVS() const
 
 void CDetailManager::Render(CBackend& cmd_list, const Fsphere* bounds)
 {
+    XR_WEB_PROF(RenderDetails);
 #ifndef _EDITOR
     if (nullptr == dtFS)
         return;
@@ -446,6 +448,7 @@ void CDetailManager::DispatchMTCalc()
 #endif
 
         ZoneScoped;
+        XR_WEB_PROF(RenderDetailsCalc);
 
         EYE = Device.vCameraPosition;
 

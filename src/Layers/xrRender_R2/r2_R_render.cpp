@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "xrCore/WebProfiler.h"
 
 #include "xrCore/Threading/TaskManager.hpp"
 
@@ -378,6 +379,7 @@ void CRender::Render()
     // Postprocess
     {
         PIX_EVENT(DEFER_LIGHT_COMBINE);
+        XR_WEB_PROF(RenderCombine);
         Target->phase_combine();
     }
 
