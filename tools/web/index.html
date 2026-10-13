@@ -15,12 +15,16 @@
                align-items: center; justify-content: center; cursor: pointer;
                background: rgba(0,0,0,.55); color: #cfc; font: 20px sans-serif; }
   #audiogate[hidden] { display: none; }
+  #crash { position: absolute; inset: 0; z-index: 3; overflow: auto; padding: 24px;
+           background: rgba(40,0,0,.92); color: #fcc; font: 13px monospace; white-space: pre-wrap; }
+  #crash[hidden] { display: none; }
 </style>
 </head>
 <body>
 <canvas id="canvas"></canvas>
 <div id="status">loading…</div>
 <button id="fullscreen" title="Fullscreen + mouse capture">fullscreen</button>
+<div id="crash" hidden></div>
 <div id="audiogate" hidden>Нажмите, чтобы продолжить (включить звук)</div>
 <script>
   var statusElement = document.getElementById('status');
@@ -33,11 +37,31 @@
     // (~140Mb for Zaton) to app data, which persists to IndexedDB and gets
     // loaded back into memory on every start; rebuilding costs ~3s instead.
     arguments: ['-nosplash', '-no_cdb_cache'],
-    print: function (t) { console.log(t); },
-    printErr: function (t) { console.error(t); },
+    print: function (t) { logTail(t); console.log(t); },
+    printErr: function (t) { logTail(t); console.error(t); },
     setStatus: function (t) { statusElement.textContent = t; },
-    onAbort: function (t) { statusElement.textContent = 'aborted: ' + t; },
+    onAbort: function (t) { statusElement.textContent = 'aborted: ' + t; showCrash('aborted: ' + t); },
   };
+
+  // A dead engine just leaves the last frame on screen, which reads as a
+  // freeze: say so, with the end of the log for the bug report.
+  var logLines = [];
+  function logTail(t) {
+    logLines.push(String(t));
+    if (logLines.length > 40) logLines.shift();
+  }
+  function showCrash(what) {
+    var crash = document.getElementById('crash');
+    if (!crash.hidden) return;
+    if (document.exitPointerLock) document.exitPointerLock();
+    crash.textContent = 'Игра остановилась с ошибкой (перезагрузите страницу):\n' + what +
+      '\n\nПоследние строки лога:\n' + logLines.join('\n');
+    crash.hidden = false;
+  }
+  document.getElementById('crash').addEventListener('click', function () { this.hidden = true; });
+  window.addEventListener('error', function (e) {
+    showCrash((e.error && e.error.stack) || e.message);
+  });
 
   // Fullscreen needs a user gesture, so it hangs off a button. The whole
   // page goes fullscreen (not just the canvas) so the status overlay stays
@@ -150,6 +174,17 @@
         Module.ccall('xr_web_console_execute', null, ['string'], [m[2]]);
       }, +m[1] * 1000);
     });
+  }
+
+  // Dev probe: ?sabtimeout=MS -- shorten the fetch worker timeout (tests the
+  // sync XHR fallback XRFS takes when a worker fetch stalls).
+  if (params.get('sab') === '0') { // sync XHR only
+    window.XRFS_CONFIG = window.XRFS_CONFIG || {};
+    XRFS_CONFIG.noSab = true;
+  }
+  if (params.get('sabtimeout')) {
+    window.XRFS_CONFIG = window.XRFS_CONFIG || {};
+    XRFS_CONFIG.sabTimeoutMs = +params.get('sabtimeout');
   }
 
   // Dev probe: ?fsprof=SEC -- time the XRFS / FS ops, report at SEC.
