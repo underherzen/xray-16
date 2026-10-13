@@ -3,8 +3,15 @@
 requests, bound to localhost only (game assets must never leave this machine).
 
 Usage: serve.py [docroot] [port]
+
+XR_SERVE_PASSWORD (env): require HTTP Basic auth (any user name, this
+password) on every request -- for share.sh, which tunnels the server so its
+owner can play from another device. Never hand that link to anyone else: it
+serves the game's files.
 """
 
+import base64
+import hmac
 import os
 import re
 import stat
@@ -45,8 +52,36 @@ def _open_cached(path):
         return fd, size
 
 
+_PASSWORD = os.environ.get("XR_SERVE_PASSWORD", "")
+
+
 class RangeHandler(SimpleHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+
+    def _authorized(self):
+        if not _PASSWORD:
+            return True
+        header = self.headers.get("Authorization", "")
+        if header.startswith("Basic "):
+            try:
+                _, _, password = base64.b64decode(header[6:]).decode("utf-8").partition(":")
+            except ValueError:
+                return False
+            if hmac.compare_digest(password.encode(), _PASSWORD.encode()):
+                return True
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="xray-wasm", charset="UTF-8"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return False
+
+    def do_GET(self):
+        if self._authorized():
+            super().do_GET()
+
+    def do_HEAD(self):
+        if self._authorized():
+            super().do_HEAD()
 
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -101,6 +136,8 @@ class RangeHandler(SimpleHTTPRequestHandler):
         # Dev: the page's "send saves" button (index.html) uploads the
         # browser's app data here, to reproduce a player's report locally.
         # Paths stay under <docroot>/_uploads/_appdata_/.
+        if not self._authorized():
+            return
         match = re.fullmatch(r"/upload\?path=(_appdata_/[\w\-. /]+)", self.path)
         length = int(self.headers.get("Content-Length") or 0)
         if not match or ".." in match.group(1) or length > 256 * 1024 * 1024:
@@ -148,7 +185,7 @@ def main() -> None:
     port = int(sys.argv[2] if len(sys.argv) > 2 else 8000)
     handler = partial(RangeHandler, directory=root)
     server = ThreadingHTTPServer(("127.0.0.1", port), handler)
-    print(f"serving {root} at http://127.0.0.1:{port}/")
+    print(f"serving {root} at http://127.0.0.1:{port}/" + (" (password required)" if _PASSWORD else ""))
     server.serve_forever()
 
 
